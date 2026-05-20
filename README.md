@@ -37,17 +37,23 @@ From the root of the project, configure and build:
 
 ```
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
+ninja -C build
+```
+
+Or just:
+
+```
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug && ninja -C build
 ```
 
 Run the unit tests with verbose output:
 
 ```
-ninja && ./test_dynamic_alloc --verbose
+ninja -C build && ./build/test_examples1 --verbose
 ```
 
 Or run the test binary directly:
 
 ```
-./build/test_hd --verbose
+./build/test_examples1 --verbose
 ```
