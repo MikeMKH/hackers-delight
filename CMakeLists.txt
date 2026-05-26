@@ -36,3 +36,4 @@ function(add_chapter_tests chapter)
 endfunction()
 
 add_chapter_tests(chapter01)
+add_chapter_tests(chapter02)
