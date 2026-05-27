@@ -154,3 +154,16 @@ Test(de_morgan_laws_extended, not_over_subtraction) {
   int8_t b = ~x + y;
   cr_assert_eq(a, b);
 }
+
+Test(right_to_left_computability_test, snoob) {
+  u_int16_t x = 0b010011110000;
+  u_int16_t e = 0b010100000111;
+  
+  u_int16_t smallest, ripple, ones;
+  smallest = x & -x;
+  ripple = x + smallest;
+  ones = x ^ ripple;
+  ones = (ones >> 2) / smallest;
+  u_int16_t a = ripple | ones;
+  cr_assert_eq(a, e);
+}
