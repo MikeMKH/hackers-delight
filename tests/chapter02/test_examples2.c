@@ -167,3 +167,105 @@ Test(right_to_left_computability_test, snoob) {
   u_int16_t a = ripple | ones;
   cr_assert_eq(a, e);
 }
+
+Test(addition_combined_with_logical_operators, negative) {
+  int8_t x = 42;
+  int8_t e = -x;
+  int8_t a1 = ~x + 1;
+  int8_t a2 = ~(x - 1);
+  cr_assert_eq(a1, e);
+  cr_assert_eq(a2, e);
+}
+
+Test(addition_combined_with_logical_operators, not) {
+  int8_t x = 42;
+  int8_t e = ~x;
+  int8_t a = -x - 1;
+  cr_assert_eq(a, e);
+}
+
+Test(addition_combined_with_logical_operators, negative_not) {
+  int8_t x = 42;
+  int8_t e = -~x;
+  int8_t a = x + 1;
+  cr_assert_eq(a, e);
+}
+
+Test(addition_combined_with_logical_operators, not_negative) {
+  int8_t x = 42;
+  int8_t e = ~-x;
+  int8_t a = x - 1;
+  cr_assert_eq(a, e);
+}
+
+Test(addition_combined_with_logical_operators, addition) {
+  int8_t x = 42;
+  int8_t y = 58;
+  int8_t e = x + y;
+  int8_t a1 = x - ~y - 1;
+  int8_t a2 = (x ^ y) + 2 * (x & y);
+  int8_t a3 = (x | y) + (x & y);
+  int8_t a4 = 2 * (x | y) - (x ^ y);
+  cr_assert_eq(a1, e);
+  cr_assert_eq(a2, e);
+  cr_assert_eq(a3, e);
+  cr_assert_eq(a4, e);
+}
+
+Test(addition_combined_with_logical_operators, subtraction) {
+  int8_t x = 42;
+  int8_t y = 58;
+  int8_t e = x - y;
+  int8_t a1 = x + ~y + 1;
+  int8_t a2 = (x ^ y) - 2 * (~x & y);
+  int8_t a3 = (x & ~y) - (~x & y);
+  int8_t a4 = 2 * (x & ~y) - (x ^ y);
+  cr_assert_eq(a1, e);
+  cr_assert_eq(a2, e);
+  cr_assert_eq(a3, e);
+  cr_assert_eq(a4, e);
+}
+
+Test(addition_combined_with_logical_operators, xor) {
+  int8_t x = 42;
+  int8_t y = 58;
+  int8_t e = x ^ y;
+  int8_t a = (x | y) - (x & y);
+  cr_assert_eq(a, e);
+}
+
+Test(addition_combined_with_logical_operators, x_and_not_y) {
+  int8_t x = 42;
+  int8_t y = 58;
+  int8_t e = x & ~y;
+  int8_t a1 = (x | y) - y;
+  int8_t a2 = x - (x & y);
+  cr_assert_eq(a1, e);
+  cr_assert_eq(a2, e);
+}
+
+Test(addition_combined_with_logical_operators, equivalence) {
+  int8_t x = 0b01101010;  //  106
+  int8_t y = 0b00111100;  //   60
+  int8_t e = ~(x ^ y);
+  int8_t a1 = (x & y) - (x | y) - 1;
+  int8_t a2 = (x & y) + ~(x | y);
+  cr_assert_eq(a1, e);
+  cr_assert_eq(a2, e);
+}
+
+Test(addition_combined_with_logical_operators, or) {
+  int8_t x = 42;
+  int8_t y = 58;
+  int8_t e = x | y;
+  int8_t a = (x & ~y) + y;
+  cr_assert_eq(a, e);
+}
+
+Test(addition_combined_with_logical_operators, and) {
+  int8_t x = 42;
+  int8_t y = 58;
+  int8_t e = x & y;
+  int8_t a = (~x | y) - ~x;
+  cr_assert_eq(a, e);
+}
