@@ -337,3 +337,75 @@ Test(inequalities_among_logic_and_arithmetic, abs_diff_leq_xor) {
     uint8_t y3 = 0b00000000;
     cr_assert(udiff(x3, y3) <= (x3 ^ y3));
 }
+
+Test(absolute_value, abs_basic) {
+    int8_t x = -42;
+    int8_t e = 42;
+
+    int8_t a = (x < 0) ? -x : x;
+    cr_assert_eq(a, e);
+}
+
+Test(absolute_value, abs_xor_minus) {
+    int8_t x = -42;
+    int8_t e = 42;
+    
+    int8_t y = x >> 7;
+    int8_t a = (x ^ y) - y;
+    cr_assert_eq(a, e);
+}
+
+Test(absolute_value, abs_plus_xor) {
+    int8_t x = -42;
+    int8_t e = 42;
+    
+    int8_t y = x >> 7;
+    int8_t a = (x + y) ^ y;
+    cr_assert_eq(a, e);
+}
+
+Test(absolute_value, abs_minus_and) {
+    int8_t x = -42;
+    int8_t e = 42;
+    
+    int8_t y = x >> 7;
+    /* int8_t a = x - (2*x & y); */
+    int8_t a = x - (x<<1 & y); /* if you do not have multiplication */
+    cr_assert_eq(a, e);
+}
+
+Test(absolute_value, nabs_basic) {
+    int8_t x = 42;
+    int8_t e = -42;
+
+    int8_t a = (x < 0) ? x : -x;
+    cr_assert_eq(a, e);
+}
+
+Test(absolute_value, nabs_xor_minus) {
+    int8_t x = 42;
+    int8_t e = -42;
+    
+    int8_t y = x >> 7;
+    int8_t a = y - (x ^ y);
+    cr_assert_eq(a, e);
+}
+
+Test(absolute_value, nabs_plus_xor) {
+    int8_t x = 42;
+    int8_t e = -42;
+    
+    int8_t y = x >> 7;
+    int8_t a = (y - x) ^ y;
+    cr_assert_eq(a, e);
+}
+
+Test(absolute_value, nabs_minus_and) {
+    int8_t x = 42;
+    int8_t e = -42;
+    
+    int8_t y = x >> 7;
+    /* int8_t a = (2*x & y) - x; */
+    int8_t a = (x<<1 & y) - x; /* if you do not have multiplication */
+    cr_assert_eq(a, e);
+}
