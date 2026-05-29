@@ -269,3 +269,71 @@ Test(addition_combined_with_logical_operators, and) {
   int8_t a = (~x | y) - ~x;
   cr_assert_eq(a, e);
 }
+
+/* ---- (x | y) >=u max(x, y) ---- */
+
+Test(inequalities_among_logic_and_arithmetic, or_geq_max) {
+    uint8_t x0 = 0b11110000;
+    uint8_t y0 = 0b11001100;
+    uint8_t or_val0  = x0 | y0;
+    uint8_t max_val0 = x0 > y0 ? x0 : y0;
+    cr_assert(or_val0 >= max_val0);
+
+    uint8_t x1 = 0b10101010;
+    uint8_t y1 = 0b01010101;
+    uint8_t or_val1  = x1 | y1;
+    uint8_t max_val1 = x1 > y1 ? x1 : y1;
+    cr_assert(or_val1 >= max_val1);
+
+    uint8_t x2 = 0b11111111;
+    uint8_t y2 = 0b11111111;
+    uint8_t or_val2  = x2 | y2;
+    uint8_t max_val2 = x2 > y2 ? x2 : y2;
+    cr_assert(or_val2 >= max_val2);
+}
+
+/* ---- (x & y) <=u min(x, y) ---- */
+
+Test(inequalities_among_logic_and_arithmetic, and_leq_min) {
+    uint8_t x0 = 0b11110000;
+    uint8_t y0 = 0b11001100;
+    uint8_t and_val0 = x0 & y0;
+    uint8_t min_val0 = x0 < y0 ? x0 : y0;
+    cr_assert(and_val0 <= min_val0);
+
+    uint8_t x1 = 0b10101010;  /* and = 0, min = 0b01010101: loosest bound */
+    uint8_t y1 = 0b01010101;
+    uint8_t and_val1 = x1 & y1;
+    uint8_t min_val1 = x1 < y1 ? x1 : y1;
+    cr_assert(and_val1 <= min_val1);
+
+    uint8_t x2 = 0b11111111;
+    uint8_t y2 = 0b11111111;
+    uint8_t and_val2 = x2 & y2;
+    uint8_t min_val2 = x2 < y2 ? x2 : y2;
+    cr_assert(and_val2 <= min_val2);
+}
+
+/* ---- |x - y| <=u (x ^ y) ---- */
+
+static uint8_t udiff(uint8_t x, uint8_t y) {
+    return (x > y) ? x - y : y - x;
+}
+
+Test(inequalities_among_logic_and_arithmetic, abs_diff_leq_xor) {
+    uint8_t x0 = 0b11110000;
+    uint8_t y0 = 0b11001100;
+    cr_assert(udiff(x0, y0) <= (x0 ^ y0));
+
+    uint8_t x1 = 0b10101010;
+    uint8_t y1 = 0b01010101;
+    cr_assert(udiff(x1, y1) <= (x1 ^ y1));
+
+    uint8_t x2 = 0b11111111;
+    uint8_t y2 = 0b11111111;
+    cr_assert(udiff(x2, y2) <= (x2 ^ y2));
+
+    uint8_t x3 = 0b00000000;
+    uint8_t y3 = 0b00000000;
+    cr_assert(udiff(x3, y3) <= (x3 ^ y3));
+}
