@@ -409,3 +409,35 @@ Test(absolute_value, nabs_minus_and) {
     int8_t a = (x<<1 & y) - x; /* if you do not have multiplication */
     cr_assert_eq(a, e);
 }
+
+Test(average, average_of_two_unsigned_ints_floor) {
+    uint8_t x = 42;
+    uint8_t y = 59;
+    uint8_t e = 50;
+
+    uint8_t a1 = (x + y) / 2;
+    uint8_t a2 = (x & y) + ((x ^ y) >> 1);
+    cr_assert_eq(a1, e);
+    cr_assert_eq(a2, e);
+}
+
+Test(average, average_of_two_unsigned_ints_ceiling) {
+    uint8_t x = 42;
+    uint8_t y = 59;
+    uint8_t e = 51;
+
+    uint8_t a = (x | y) - ((x ^ y) >> 1);
+    cr_assert_eq(a, e);
+}
+
+Test(average, average_of_two_signed_ints) {
+    int8_t x = -42;
+    int8_t y = 59;
+    int8_t e = 8; /* 17 / 2 = 8.5 */
+
+    int8_t a1 = (x + y) / 2;
+    int8_t t = (x & y) + (((uint8_t)(x ^ y)) >> 1);
+    int8_t a2 = t + ((t >> 7) & (x ^ y));
+    cr_assert_eq(a1, e);
+    cr_assert_eq(a2, e);
+}
