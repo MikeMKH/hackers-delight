@@ -430,16 +430,24 @@ Test(average, average_of_two_unsigned_ints_ceiling) {
     cr_assert_eq(a, e);
 }
 
-Test(average, average_of_two_signed_ints) {
+Test(average, average_of_two_signed_ints_both_negative) {
     int8_t x = -42;
-    int8_t y = 59;
-    int8_t e = 8; /* 17 / 2 = 8.5 */
+    int8_t y = -9;
+    int8_t e_floor     = -26;
+    int8_t e_truncated = -25;
 
-    int8_t a1 = (x + y) / 2;
-    int8_t t = (x & y) + (((uint8_t)(x ^ y)) >> 1);
-    int8_t a2 = t + ((t >> 7) & (x ^ y));
-    cr_assert_eq(a1, e);
-    cr_assert_eq(a2, e);
+    uint8_t ux  = (uint8_t)x;
+    uint8_t uy  = (uint8_t)y;
+    uint8_t x_xor_y = ux ^ uy;
+
+    uint8_t t  = (ux & uy) + (x_xor_y >> 1);
+    int8_t  a1 = (int8_t)t;
+
+    uint8_t correction = (t >> 7) & x_xor_y;
+    int8_t  a2  = (int8_t)(t + correction);
+
+    cr_assert_eq(a1, e_floor);
+    cr_assert_eq(a2, e_truncated);
 }
 
 Test(sign_extension, sign_extend_8_to_32) {
