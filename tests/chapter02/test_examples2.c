@@ -441,3 +441,17 @@ Test(average, average_of_two_signed_ints) {
     cr_assert_eq(a1, e);
     cr_assert_eq(a2, e);
 }
+
+Test(sign_extension, sign_extend_8_to_32) {
+    uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+    int32_t e = -42;
+
+    int32_t a1 = (int8_t)x;
+    int32_t a2 = ((x + 0x80) & 0xFF) - 0x80;
+    int32_t a3 = ((x & 0xFF) ^ 0x80) - 0x80;
+    int32_t a4 = (x & 0x7F) - (x & 0x80);
+    cr_assert_eq(a1, e);
+    cr_assert_eq(a2, e);
+    cr_assert_eq(a3, e);
+    cr_assert_eq(a4, e);
+}
