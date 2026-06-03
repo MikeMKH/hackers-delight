@@ -463,3 +463,44 @@ Test(sign_extension, sign_extend_8_to_32) {
     cr_assert_eq(a3, e);
     cr_assert_eq(a4, e);
 }
+
+static void shift_right_signed_from_unsigned_test_helper(uint8_t x, int n, int8_t e) {
+    int8_t a1 = (((int8_t)x) >> n);
+    int8_t a2 = (int8_t)(((uint8_t)(x + 0x80u) >> n)) - (int8_t)(0x80u >> n);
+    uint8_t t3 = 0x80u >> n;
+    int8_t a3 = ((x >> n) ^ t3) - t3;
+    uint8_t t4 = (x & 0x80u) >> n;
+    int8_t a4 = (x >> n) - (t4 + t4);
+    cr_assert_eq(a1, e);
+    cr_assert_eq(a2, e);
+    cr_assert_eq(a3, e);
+    cr_assert_eq(a4, e);
+}
+
+Test(shift_right_signed_from_unsigned, n_equals_1) {
+    uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+    int8_t e = -21;   /* -42 / 2 = -21, expected result */
+    int n = 1;
+    shift_right_signed_from_unsigned_test_helper(x, n, e);
+}
+
+Test(shift_right_signed_from_unsigned, n_equals_2) {
+    uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+    int8_t e = -11;   /* -42 / 4 = -10.5, expected result */
+    int n = 2;
+    shift_right_signed_from_unsigned_test_helper(x, n, e);
+}
+
+Test(shift_right_signed_from_unsigned, n_equals_3) {
+    uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+    int8_t e = -6;    /* -42 / 8 = -5.25, expected result */
+    int n = 3;
+    shift_right_signed_from_unsigned_test_helper(x, n, e);
+}
+
+Test(shift_right_signed_from_unsigned, n_equals_7) {
+    uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+    int8_t e = -1;    /* -42 / 128 = -0.328125, expected result */
+    int n = 7;
+    shift_right_signed_from_unsigned_test_helper(x, n, e);
+}
