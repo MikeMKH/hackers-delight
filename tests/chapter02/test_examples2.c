@@ -370,7 +370,8 @@ Test(absolute_value, abs_minus_and) {
     
     int8_t y = x >> 7;
     /* int8_t a = x - (2*x & y); */
-    int8_t a = x - (x<<1 & y); /* if you do not have multiplication */
+    int8_t a = x - (int8_t)((uint8_t)x << 1 & (uint8_t)y); /* if you do not have multiplication */
+    /* left shifting a negative signed value is undefined behavior, so cast it as uint */
     cr_assert_eq(a, e);
 }
 
@@ -503,4 +504,29 @@ Test(shift_right_signed_from_unsigned, n_equals_7) {
     int8_t e = -1;    /* -42 / 128 = -0.328125, expected result */
     int n = 7;
     shift_right_signed_from_unsigned_test_helper(x, n, e);
+}
+
+static int8_t sign_function(uint8_t x) {
+  return ((int8_t)x >> 7) | (int8_t)((uint8_t)-x >> 7);
+}
+
+Test(sign_function, sign_function_given_negative_value) {
+  uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+  int8_t e = -1;
+  int8_t a = sign_function(x);
+  cr_assert_eq(a, e);
+}
+
+Test(sign_function, sign_function_given_zero_value) {
+  uint8_t x = 0x00; /* 0 as a raw unsigned byte */
+  int8_t e = 0;
+  int8_t a = sign_function(x);
+  cr_assert_eq(a, e);
+}
+
+Test(sign_function, sign_function_given_positive_value) {
+  uint8_t x = 0x2A; /* 42 as a raw unsigned byte */
+  int8_t e = 1;
+  int8_t a = sign_function(x);
+  cr_assert_eq(a, e);
 }
