@@ -530,3 +530,31 @@ Test(sign_function, sign_function_given_positive_value) {
   int8_t a = sign_function(x);
   cr_assert_eq(a, e);
 }
+
+static int8_t compare_function(uint8_t x, uint8_t y) {
+  return ((int8_t)(x - y) >> 7) | (int8_t)(((uint8_t)(y - x) >> 7));
+}
+
+Test(compare_function, compare_function_given_x_greater_than_y) {
+  uint8_t x = 0x2A; /* 42 as a raw unsigned byte */
+  uint8_t y = 0xD6; /* -42 as a raw unsigned byte */
+  int8_t e = 1;
+  int8_t a = compare_function(x, y);
+  cr_assert_eq(a, e);
+}
+
+Test(compare_function, compare_function_given_x_less_than_y) {
+  uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+  uint8_t y = 0x2A; /* 42 as a raw unsigned byte */
+  int8_t e = -1;
+  int8_t a = compare_function(x, y);
+  cr_assert_eq(a, e);
+}
+
+Test(compare_function, compare_function_given_x_equals_y) {
+  uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+  uint8_t y = 0xD6; /* -42 as a raw unsigned byte */
+  int8_t e = 0;
+  int8_t a = compare_function(x, y);
+  cr_assert_eq(a, e);
+}
