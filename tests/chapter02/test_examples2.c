@@ -558,3 +558,31 @@ Test(compare_function, compare_function_given_x_equals_y) {
   int8_t a = compare_function(x, y);
   cr_assert_eq(a, e);
 }
+
+Test(isign, transfer_negative_sign_from_y_to_x) {
+  uint8_t x = 0x2A; /* 42 as a raw unsigned byte */
+  uint8_t y = 0xD6; /* -42 as a raw unsigned byte */
+  int8_t e = -42;
+  
+  int8_t t1 = (int8_t)y >> 7;
+  int8_t a1 = (abs((int8_t)x) ^ t1) - t1;
+  cr_assert_eq(a1, e);
+  
+  int8_t t2 = (int8_t)(x ^ y) >> 7;
+  int8_t a2 = (x ^ t2) - t2;
+  cr_assert_eq(a2, e);
+}
+
+Test(isign, transfer_positive_sign_from_y_to_x) {
+  uint8_t x = 0xD6; /* -42 as a raw unsigned byte */
+  uint8_t y = 0x2A; /* 42 as a raw unsigned byte */
+  int8_t e = 42;
+  
+  int8_t t1 = (int8_t)y >> 7;
+  int8_t a1 = (abs((int8_t)x) ^ t1) - t1;
+  cr_assert_eq(a1, e);
+  
+  int8_t t2 = (int8_t)(x ^ y) >> 7;
+  int8_t a2 = (x ^ t2) - t2;
+  cr_assert_eq(a2, e);
+}
