@@ -586,3 +586,42 @@ Test(isign, transfer_positive_sign_from_y_to_x) {
   int8_t a2 = (x ^ t2) - t2;
   cr_assert_eq(a2, e);
 }
+
+static void check_decode_zero_means_8(uint8_t x, uint8_t e) {
+  /* type sizes do not matter as long as they are 3-bit or larger */
+  
+  /* all formulas decode a 3-bit "zero means 8" field */
+    uint8_t a1 = ((x - 1) & 7) + 1;
+    uint8_t a2 = ((x + 7) & 7) + 1;
+    uint8_t a3 = ((x - 1) | (uint8_t)-8) + 9;
+    uint8_t a4 = ((x + 7) | (uint8_t)-8) + 9;
+    uint8_t a5 = ((x + 7) | 8) - 7;
+    uint8_t a6 = ((x - 1) & 8) + x;
+    uint8_t a7 = 8 - ((uint8_t)-x & 7);
+    uint8_t a8 = -((uint8_t)-x | (uint8_t)-8);
+
+    cr_assert_eq(a1, e, "x=%u a1=%u", x, a1);
+    cr_assert_eq(a2, e, "x=%u a2=%u", x, a2);
+    cr_assert_eq(a3, e, "x=%u a3=%u", x, a3);
+    cr_assert_eq(a4, e, "x=%u a4=%u", x, a4);
+    cr_assert_eq(a5, e, "x=%u a5=%u", x, a5);
+    cr_assert_eq(a6, e, "x=%u a6=%u", x, a6);
+    cr_assert_eq(a7, e, "x=%u a7=%u", x, a7);
+    cr_assert_eq(a8, e, "x=%u a8=%u", x, a8);
+}
+
+Test(zero_means_2_nth, x_equals_0_means_8) {
+    check_decode_zero_means_8(0, 8);  /* 0 = 2^3 */
+}
+
+Test(zero_means_2_nth, x_equals_1) {
+    check_decode_zero_means_8(1, 1);
+}
+
+Test(zero_means_2_nth, x_equals_4) {
+    check_decode_zero_means_8(4, 4);
+}
+
+Test(zero_means_2_nth, x_equals_7) {
+    check_decode_zero_means_8(7, 7);  /* maximum non-special value */
+}
