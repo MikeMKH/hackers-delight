@@ -636,3 +636,31 @@ Test(add_subtract_multiply, subtraction_is_addition_of_negative) {
     cr_assert_eq(a1, e);
     cr_assert_eq(a2, e);
 }
+
+Test(rotate_shifts, left_rotate) {
+    uint8_t x  = 0b00010010; /* 18 as a raw unsigned byte */
+    uint8_t e1 = 0b00100100; /* 36 as a raw unsigned byte */
+    uint8_t e2 = 0b01001000; /* 72 as a raw unsigned byte */
+    
+    int8_t n1 = 1;
+    uint8_t a1 = (x << n1) | (x >> (8 - n1));
+    cr_assert_eq(a1, e1);
+    
+    int8_t n2 = 2;
+    uint8_t a2 = (x << n2) | (x >> (8 - n2));
+    cr_assert_eq(a2, e2);
+}
+
+Test(rotate_shifts, right_rotate) {
+    uint8_t x  = 0b00010010; /* 18 as a raw unsigned byte */
+    uint8_t e1 = 0b00001001; /* 9 as a raw unsigned byte */
+    uint8_t e2 = 0b10000100; /* 132 as a raw unsigned byte */
+    
+    int8_t n1 = 1;
+    uint8_t a1 = (x >> n1) | (x << (8 - n1));
+    cr_assert_eq(a1, e1);
+    
+    int8_t n2 = 2;
+    uint8_t a2 = (x >> n2) | (x << (8 - n2));
+    cr_assert_eq(a2, e2);
+}
