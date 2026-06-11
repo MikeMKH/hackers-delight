@@ -625,3 +625,14 @@ Test(zero_means_2_nth, x_equals_4) {
 Test(zero_means_2_nth, x_equals_7) {
     check_decode_zero_means_8(7, 7);  /* maximum non-special value */
 }
+
+Test(add_subtract_multiply, subtraction_is_addition_of_negative) {
+    int8_t x = 42;
+    int8_t y = 58;
+    int8_t e = x - y;
+
+    int8_t a1 = x + (-y);
+    int8_t a2 = x + ~y + 1;
+    cr_assert_eq(a1, e);
+    cr_assert_eq(a2, e);
+}
