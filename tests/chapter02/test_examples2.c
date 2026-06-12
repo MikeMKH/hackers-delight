@@ -664,3 +664,26 @@ Test(rotate_shifts, right_rotate) {
     uint8_t a2 = (x >> n2) | (x << (8 - n2));
     cr_assert_eq(a2, e2);
 }
+
+Test(double_length_add, add_two_numbers) {
+  uint8_t x1 = 0b01010011; /*  83 */
+  uint8_t x0 = 0b10010010; /* 146 */
+  uint8_t y1 = 0b10101001; /* 169 */
+  uint8_t y0 = 0b11010110; /* 214 */
+  /*
+  x = (x1, x0) = 0b0101001110010010 =  83×256 + 146 = 21248 + 146 = 21394
+  y = (y1, y0) = 0b1010100111010110 = 169×256 + 214 = 43264 + 214 = 43478
+  e = x + y = 21394 + 43478 = 64872
+   */
+  uint16_t e = (uint16_t)(x1 << 8) + (uint16_t)(y1 << 8) + x0 + y0;
+
+  uint8_t z0 = x0 + y0;
+  uint8_t carry = ((x0 & y0) | ((x0 | y0) & (uint8_t)~z0)) >> 7;
+  uint8_t z1 = x1 + y1 + carry;
+  uint16_t a = (uint16_t)(z1 << 8) | z0;
+  cr_assert_eq(a, e);
+  cr_assert_eq(carry, 1);
+  cr_assert_eq(z0, (146 + 214) & 0xFF);
+  cr_assert_eq(z1, 83 + 169 + 1);
+  cr_assert_eq(e, 64872);
+}
