@@ -687,3 +687,84 @@ Test(double_length_add, add_two_numbers) {
   cr_assert_eq(z1, 83 + 169 + 1);
   cr_assert_eq(e, 64872);
 }
+
+Test(multibyte_add, add_four_8_bit_numbers) {
+  uint8_t x3 = 0b01010011; /*  83 */
+  uint8_t x2 = 0b10010010; /* 146 */
+  uint8_t x1 = 0b10101001; /* 169 */
+  uint8_t x0 = 0b11010110; /* 214 */
+  uint32_t x = ((uint32_t)x3 << 24) | ((uint32_t)x2 << 16)
+           | ((uint32_t)x1 <<  8) |  (uint32_t)x0;
+  /*
+  x = (x3, x2, x1, x0) = 0b01010011100100101010100111010110
+                       = 83×256³ + 146×256² + 169×256¹ + 214×256⁰
+                       = 1402668288
+  */
+ 
+  uint32_t y3 = 0b11110000; /* 240 */
+  uint32_t y2 = 0b00001111; /* 15 */
+  uint32_t y1 = 0b11110000; /* 240 */
+  uint32_t y0 = 0b00001111; /* 15 */
+  uint32_t y = ((uint32_t)y3 << 24) | ((uint32_t)y2 << 16)
+             | ((uint32_t)y1 <<  8) |  (uint32_t)y0;
+  /*
+  y = (y3, y2, y1, y0) = 0b11110000000011111111000000001111
+                       = 240×256³ + 15×256² + 240×256¹ + 15×256⁰
+                       = 4039877788
+  */
+ 
+  /* expected: each byte sum truncated to 8 bits */
+  uint8_t e3 = (uint8_t)(x3 + y3); /*  83 + 240 = 323 -> 67  */
+  uint8_t e2 = (uint8_t)(x2 + y2); /* 146 +  15 = 161        */
+  uint8_t e1 = (uint8_t)(x1 + y1); /* 169 + 240 = 409 -> 153 */
+  uint8_t e0 = (uint8_t)(x0 + y0); /* 214 +  15 = 229        */
+  
+  uint32_t s = (x & 0x7F7F7F7F) + (y & 0x7F7F7F7F);
+  s = (((x^y) & 0x80808080) ^ s);
+
+  cr_assert_eq((uint8_t)( s        & 0xFF), e0, "byte 0");
+  cr_assert_eq((uint8_t)((s >>  8) & 0xFF), e1, "byte 1");
+  cr_assert_eq((uint8_t)((s >> 16) & 0xFF), e2, "byte 2");
+  cr_assert_eq((uint8_t)((s >> 24) & 0xFF), e3, "byte 3");
+}
+
+Test(multibyte_subtraction, subtract_four_8_bit_numbers) {
+  uint8_t x3 = 0b01010011; /*  83 */
+  uint8_t x2 = 0b10010010; /* 146 */
+  uint8_t x1 = 0b10101001; /* 169 */
+  uint8_t x0 = 0b11010110; /* 214 */
+  uint32_t x = ((uint32_t)x3 << 24) | ((uint32_t)x2 << 16)
+           | ((uint32_t)x1 <<  8) |  (uint32_t)x0;
+  /*
+  x = (x3, x2, x1, x0) = 0b01010011100100101010100111010110
+                       = 83×256³ + 146×256² + 169×256¹ + 214×256⁰
+                       = 1402668288
+  */
+ 
+  uint32_t y3 = 0b11110000; /* 240 */
+  uint32_t y2 = 0b00001111; /* 15 */
+  uint32_t y1 = 0b11110000; /* 240 */
+  uint32_t y0 = 0b00001111; /* 15 */
+  uint32_t y = ((uint32_t)y3 << 24) | ((uint32_t)y2 << 16)
+             | ((uint32_t)y1 <<  8) |  (uint32_t)y0;
+  /*
+  y = (y3, y2, y1, y0) = 0b11110000000011111111000000001111
+                       = 240×256³ + 15×256² + 240×256¹ + 15×256⁰
+                       = 4039877788
+  */
+ 
+  /* expected: each byte difference truncated to 8 bits */
+  uint8_t e3 = (uint8_t)(x3 - y3); /*  83 - 240 = -157 -> 99  */
+  uint8_t e2 = (uint8_t)(x2 - y2); /* 146 -  15 = 131        */
+  uint8_t e1 = (uint8_t)(x1 - y1); /* 169 - 240 = -71 -> 185 */
+  uint8_t e0 = (uint8_t)(x0 - y0); /* 214 -  15 = 199        */
+  
+  uint32_t d = (x | 0x80808080) - (y & 0x7F7F7F7F);
+  uint32_t xnor_left = (x ^ y) | 0x7F7F7F7F;
+  d = ~(xnor_left ^ d);
+
+  cr_assert_eq((uint8_t)( d        & 0xFF), e0, "byte 0");
+  cr_assert_eq((uint8_t)((d >>  8) & 0xFF), e1, "byte 1");
+  cr_assert_eq((uint8_t)((d >> 16) & 0xFF), e2, "byte 2");
+  cr_assert_eq((uint8_t)((d >> 24) & 0xFF), e3, "byte 3");
+}
