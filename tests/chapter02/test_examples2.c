@@ -876,3 +876,65 @@ Test(dozu_min, dozu_min_test_with_x_gt_y) {
   uint32_t z = dozu_min(x, y);
   cr_assert_eq(z, 0x12345678);
 }
+
+Test(exchange_registers, exchange_with_xor) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  x ^= y;
+  y ^= x;
+  x ^= y;
+  cr_assert_eq(x, 0x87654321);
+  cr_assert_eq(y, 0x12345678);
+}
+
+Test(exchange_registers, exchange_with_addition) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  x += y;
+  y = x - y;
+  x -= y;
+  cr_assert_eq(x, 0x87654321);
+  cr_assert_eq(y, 0x12345678);
+}
+
+Test(exchange_registers, exchange_with_subtraction) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  x -= y;
+  y += x;
+  x = y - x;
+  cr_assert_eq(x, 0x87654321);
+  cr_assert_eq(y, 0x12345678);
+}
+
+Test(exchange_registers, exchange_with_subtraction_other_way) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  x = y - x;
+  y -= x;
+  x += y;
+  cr_assert_eq(x, 0x87654321);
+  cr_assert_eq(y, 0x12345678);
+}
+
+Test(exchange_registers, exchange_with_masking) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  uint32_t mask = 0xF0F0F0F0;
+  x ^= y;
+  y = y ^ (x & mask);
+  x ^= y;
+  cr_assert_eq(x, 0x82644628);
+  cr_assert_eq(y, 0x17355371);
+}
+
+Test(exchange_registers, exchange_with_masking_using_a_temporary_variable) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  uint32_t mask = 0xF0F0F0F0;
+  uint32_t t = (x ^ y) & mask;
+  x ^= t;
+  y ^= t;
+  cr_assert_eq(x, 0x82644628);
+  cr_assert_eq(y, 0x17355371);
+}
