@@ -768,3 +768,111 @@ Test(multibyte_subtraction, subtract_four_8_bit_numbers) {
   cr_assert_eq((uint8_t)((d >> 16) & 0xFF), e2, "byte 2");
   cr_assert_eq((uint8_t)((d >> 24) & 0xFF), e3, "byte 3");
 }
+
+static int32_t doz(int32_t x, int32_t y) {
+  return (x < y) ? 0 : (x - y);
+}
+
+Test(doz, doz_test_with_x_lt_y) {
+  int32_t x = 12345678;
+  int32_t y = 87654321;
+  int32_t z = doz(x, y);
+  cr_assert_eq(z, 0);
+}
+
+Test(doz, doz_test_with_x_gt_y) {
+  int32_t x = 87654321;
+  int32_t y = 12345678;
+  int32_t z = doz(x, y);
+  cr_assert_eq(z, 87654321 - 12345678);
+}
+
+static uint32_t dozu(uint32_t x, uint32_t y) {
+  return (x < y) ? 0 : (x - y);
+}
+
+Test(dozu, dozu_test_with_x_lt_y) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  uint32_t z = dozu(x, y);
+  cr_assert_eq(z, 0);
+}
+
+Test(dozu, dozu_test_with_x_gt_y) {
+  uint32_t x = 0x87654321;
+  uint32_t y = 0x12345678;
+  uint32_t z = dozu(x, y);
+  cr_assert_eq(z, 0x87654321 - 0x12345678);
+}
+
+static int32_t doz_max(int32_t x, int32_t y) {
+  return y + doz(x, y);
+}
+
+Test(doz_max, doz_max_test_with_x_lt_y) {
+  int32_t x = 12345678;
+  int32_t y = 87654321;
+  int32_t z = doz_max(x, y);
+  cr_assert_eq(z, 87654321);
+}
+
+Test(doz_max, doz_max_test_with_x_gt_y) {
+  int32_t x = 87654321;
+  int32_t y = 12345678;
+  int32_t z = doz_max(x, y);
+  cr_assert_eq(z, 87654321);
+}
+
+static int32_t doz_min(int32_t x, int32_t y) {
+  return x - doz(x, y);
+}
+
+Test(doz_min, doz_min_test_with_x_lt_y) {
+  int32_t x = 12345678;
+  int32_t y = 87654321;
+  int32_t z = doz_min(x, y);
+  cr_assert_eq(z, 12345678);
+}
+
+Test(doz_min, doz_min_test_with_x_gt_y) {
+  int32_t x = 87654321;
+  int32_t y = 12345678;
+  int32_t z = doz_min(x, y);
+  cr_assert_eq(z, 12345678);
+}
+
+static uint32_t dozu_max(uint32_t x, uint32_t y) {
+  return y + dozu(x, y);
+}
+
+Test(dozu_max, dozu_max_test_with_x_lt_y) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  uint32_t z = dozu_max(x, y);
+  cr_assert_eq(z, 0x87654321);
+}
+
+Test(dozu_max, dozu_max_test_with_x_gt_y) {
+  uint32_t x = 0x87654321;
+  uint32_t y = 0x12345678;
+  uint32_t z = dozu_max(x, y);
+  cr_assert_eq(z, 0x87654321);
+}
+
+static uint32_t dozu_min(uint32_t x, uint32_t y) {
+  return x - dozu(x, y);
+}
+
+Test(dozu_min, dozu_min_test_with_x_lt_y) {
+  uint32_t x = 0x12345678;
+  uint32_t y = 0x87654321;
+  uint32_t z = dozu_min(x, y);
+  cr_assert_eq(z, 0x12345678);
+}
+
+Test(dozu_min, dozu_min_test_with_x_gt_y) {
+  uint32_t x = 0x87654321;
+  uint32_t y = 0x12345678;
+  uint32_t z = dozu_min(x, y);
+  cr_assert_eq(z, 0x12345678);
+}
