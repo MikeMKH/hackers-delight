@@ -938,3 +938,98 @@ Test(exchange_registers, exchange_with_masking_using_a_temporary_variable) {
   cr_assert_eq(x, 0x82644628);
   cr_assert_eq(y, 0x17355371);
 }
+
+Test(alternating_among_values, two_values_arithmetic) {
+  uint32_t a = 0x12345678;
+  uint32_t b = 0x87654321;
+  uint32_t x;
+  x = a;
+  cr_assert_eq(x, a, "  -> a");
+  x = a + b - x;
+  cr_assert_eq(x, b, "a -> b");
+  x = a + b - x;
+  cr_assert_eq(x, a, "b -> a");
+}
+
+Test(alternating_among_values, two_values_xor) {
+  uint32_t a = 0x12345678;
+  uint32_t b = 0x87654321;
+  uint32_t x;
+  x = a;
+  cr_assert_eq(x, a, "  -> a");
+  x = a ^ b ^ x;
+  cr_assert_eq(x, b, "a -> b");
+  x = a ^ b ^ x;
+  cr_assert_eq(x, a, "b -> a");
+}
+
+Test(alternating_among_values, three_values_arithmetic) {
+    uint32_t a = 0x12345678;
+    uint32_t b = 0x87654321;
+    uint32_t c = 0x0000DEAD;
+    uint32_t x;
+    uint32_t fx;
+
+    x = a;
+    fx = ((-(uint32_t)(x == c)) & (a - c))
+       + ((-(uint32_t)(x == a)) & (b - c))
+       + c;
+    cr_assert_eq(fx, b, "a -> b");
+
+    x = b;
+    fx = ((-(uint32_t)(x == c)) & (a - c))
+       + ((-(uint32_t)(x == a)) & (b - c))
+       + c;
+    cr_assert_eq(fx, c, "b -> c");
+
+    x = c;
+    fx = ((-(uint32_t)(x == c)) & (a - c))
+       + ((-(uint32_t)(x == a)) & (b - c))
+       + c;
+    cr_assert_eq(fx, a, "c -> a");
+}
+
+Test(alternating_among_values, three_values_xor) {
+    uint32_t a = 0x12345678;
+    uint32_t b = 0x87654321;
+    uint32_t c = 0x0000DEAD;
+    uint32_t x;
+    uint32_t fx;
+
+    x = a;
+    fx = ((-(uint32_t)(x == c)) & (a ^ c))
+       ^ ((-(uint32_t)(x == a)) & (b ^ c))
+       ^ c;
+    cr_assert_eq(fx, b, "a -> b");
+
+    x = b;
+    fx = ((-(uint32_t)(x == c)) & (a ^ c))
+       ^ ((-(uint32_t)(x == a)) & (b ^ c))
+       ^ c;
+    cr_assert_eq(fx, c, "b -> c");
+
+    x = c;
+    fx = ((-(uint32_t)(x == c)) & (a ^ c))
+       ^ ((-(uint32_t)(x == a)) & (b ^ c))
+       ^ c;
+    cr_assert_eq(fx, a, "c -> a");
+}
+
+Test(alternating_among_values, three_values_xor_chained) {
+    uint32_t a = 0x12345678;
+    uint32_t b = 0x87654321;
+    uint32_t c = 0x0000DEAD;
+    uint32_t x;
+    
+    #define NEXT(x) \
+      (((-(uint32_t)((x) == c)) & (a ^ c)) \
+      ^ ((-(uint32_t)((x) == a)) & (b ^ c)) \
+      ^ c)
+    
+    x = a;       cr_assert_eq(x, a, "  -> a");
+    x = NEXT(x); cr_assert_eq(x, b, "a -> b");
+    x = NEXT(x); cr_assert_eq(x, c, "b -> c");
+    x = NEXT(x); cr_assert_eq(x, a, "c -> a");
+
+    #undef NEXT
+}
