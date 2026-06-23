@@ -110,3 +110,42 @@ Test(rounding_next_power_of_2, clp2) {
   uint32_t a4 = clp2(x4);
   cr_assert_eq(a4, e4, "Expected %d, got %d", e4, a4);
 }
+
+int crosses_boundary(uint8_t addr, uint8_t len, uint8_t block_size) {
+/*
+  IBM 370 assembler example from Hacker's Delight for block size of 4096 bytes
+  
+  O RA,=A(-4096)
+  ALR RA,RL
+  BO CROSSES 
+*/
+  uint8_t mask = ~(block_size - 1);       /* 0xF0 for block_size=16  */
+  uint8_t base = addr & mask;             /* O  RA,=A(-block_size)   */
+  uint16_t sum = (uint16_t)addr + len;    /* ALR RA,RL               */
+  return (sum & 0xFF00) != 0              /* BO  CROSSES [carry out  */
+      || (sum & mask) != (uint16_t)base;  /* or landed in new block] */
+}
+
+Test(boundary_crossing, no_crossing_same_block) {
+  cr_assert_eq(crosses_boundary(0x12, 3, 16), 0, "0x12 + 3 = 0x15 within 0x10 block");
+}
+
+Test(boundary_crossing, exact_hit_on_boundary) {
+  cr_assert_eq(crosses_boundary(0x0E, 2, 16), 1, "0x0E + 2 = 0x10 exactly on boundary");
+}
+
+Test(boundary_crossing, crosses_into_next_block) {
+  cr_assert_eq(crosses_boundary(0x0D, 4, 16), 1, "0x0D + 4 = 0x11 moves from 0x00 to 0x10 block");
+}
+
+Test(boundary_crossing, starts_on_boundary_no_cross) {
+  cr_assert_eq(crosses_boundary(0x10, 4, 16), 0, "0x10 + 4 = 0x14 within 0x10 block");
+}
+
+Test(boundary_crossing, zero_length_never_crosses) {
+  cr_assert_eq(crosses_boundary(0x0F, 0, 16), 0, "zero length never crosses a boundary");
+}
+
+Test(boundary_crossing, wraps_around_byte_max) {
+  cr_assert_eq(crosses_boundary(0xFE, 4, 16), 1, "0xFE + 4 wraps past 0xFF thus crosses 0xF0 boundary");
+}
