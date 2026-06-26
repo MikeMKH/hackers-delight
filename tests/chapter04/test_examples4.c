@@ -84,3 +84,137 @@ Test(add_bounds, upper_overflow) {
     cr_assert_eq(sum, 114);
     cr_assert(within_bounds_unsigned(sum, r.lo, r.hi));
 }
+
+uint8_t min_or(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+  uint8_t m, temp;
+  m = 0x80;
+  while (m != 0) {
+    if (~a & c & m) {
+      temp = (uint8_t)((a | m) & -(uint8_t)m);
+      if (temp <= b) { a = temp; break; }
+    }
+    else if (a & ~c & m) {
+      temp = (uint8_t)((c | m) & -(uint8_t)m);
+      if (temp <= d) { c = temp; break; }
+    }
+    m >>= 1;
+  }
+  return a | c;
+}
+
+uint8_t max_or(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+  uint8_t m, temp;
+  m = 0x80;
+  while (m != 0) {
+    if (b & d & m) {
+      temp = (uint8_t)((b - m) | (m - 1));
+      if (temp >= a) { b = temp; break; }
+      temp = (uint8_t)((d - m) | (m - 1));
+      if (temp >= c) { d = temp; break; }
+    }
+    m >>= 1;
+  }
+  return b | d;
+}
+
+uint8_t min_and(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+  uint8_t m, temp;
+  m = 0x80;
+  while (m != 0) {
+    if (~a & ~c & m) {
+      temp = (uint8_t)((a | m) & -(uint8_t)m);
+      if (temp <= b) { a = temp; break; }
+      temp = (uint8_t)((c | m) & -(uint8_t)m);
+      if (temp <= d) { c = temp; break; }
+    }
+    m >>= 1;
+  }
+  return a & c;
+}
+
+uint8_t max_and(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+  uint8_t m, temp;
+  m = 0x80;
+  while (m != 0) {
+    if (b & ~d & m) {
+      temp = (uint8_t)((b & ~(uint8_t)m) | (m - 1));
+      if (temp >= a) { b = temp; break; }
+    }
+    else if (~b & d & m) {
+      temp = (uint8_t)((d & ~(uint8_t)m) | (m - 1));
+      if (temp >= c) { d = temp; break; }
+    }
+    m >>= 1;
+  }
+  return b & d;
+}
+
+Test(logical_identities, min_and_eq_not_max_or) {
+  uint8_t a = 10, b = 20, c = 15, d = 25;
+  uint8_t min_and_result = min_and(a, b, c, d);
+  uint8_t max_or_result  = max_or(~b, ~a, ~d, ~c);
+  cr_assert_eq(min_and_result, (uint8_t)~max_or_result);
+}
+
+Test(logical_identities, max_and_eq_not_min_or) {
+  uint8_t a = 10, b = 20, c = 15, d = 25;
+  uint8_t max_and_result = max_and(a, b, c, d);
+  uint8_t min_or_result  = min_or(~b, ~a, ~d, ~c);
+  cr_assert_eq(max_and_result, (uint8_t)~min_or_result);
+}
+
+uint8_t min_xor(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+  uint8_t m, temp;
+  m = 0x80;
+  while (m != 0) {
+    if (~a & c & m) {
+      temp = (uint8_t)((a | m) & -(uint8_t)m);
+      if (temp <= b) a = temp;
+    }
+    else if (a & ~c & m) {
+      temp = (uint8_t)((c | m) & -(uint8_t)m);
+      if (temp <= d) c = temp;
+    }
+    m >>= 1;
+  }
+  return a ^ c;
+}
+
+uint8_t max_xor(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+  uint8_t m, temp;
+  m = 0x80;
+  while (m != 0) {
+    if (b & d & m) {
+      temp = (uint8_t)((b - m) | (m - 1));
+      if (temp >= a) b = temp;
+      else {
+        temp = (uint8_t)((d - m) | (m - 1));
+        if (temp >= c) d = temp;
+      }
+    }
+    m >>= 1;
+  }
+  return b ^ d;
+}
+
+Test(logical_identities, min_xor) {
+  uint8_t a = 10, b = 20, c = 15, d = 25;
+  uint8_t min_xor_result =
+    min_and(a, b, (uint8_t)~d, (uint8_t)~c)
+    | min_and((uint8_t)~b, (uint8_t)~a, c, d);
+  cr_assert(min_xor_result <= (a ^ c));
+  cr_assert(min_xor_result <= (a ^ d));
+  cr_assert(min_xor_result <= (b ^ c));
+  cr_assert(min_xor_result <= (b ^ d));
+}
+
+Test(logical_identities, max_xor) {
+  uint8_t a = 10, b = 20, c = 15, d = 25;
+  uint8_t max_xor_result =
+    max_or(0, max_and(a, b, (uint8_t)~d, (uint8_t)~c),
+      0, max_and((uint8_t)~b, (uint8_t)~a, c, d));
+  cr_assert(max_xor_result >= (a ^ c));
+  cr_assert(max_xor_result >= (a ^ d));
+  cr_assert(max_xor_result >= (b ^ c));
+  cr_assert(max_xor_result >= (b ^ d));
+}
