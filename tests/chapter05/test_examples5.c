@@ -178,3 +178,19 @@ Test(pop_array, basic) {
   uint8_t A[] = {0b10101010, 0b01010101};
   cr_assert_eq(pop_array(A, 2), 8);
 }
+
+uint8_t parity(uint8_t x) {
+  uint8_t y = x ^ x >> 1;
+  y ^= y >> 2;
+  y ^= y >> 4;
+  return y & 1;
+}
+
+Test(parity, examples) {
+  cr_assert_eq(parity(0b10101010), 0);
+  cr_assert_eq(parity(0b10100000), 0);
+  cr_assert_eq(parity(0b10101011), 1);
+  cr_assert_eq(parity(0b11100000), 1);
+  cr_assert_eq(parity(0b11111111), 0);
+  cr_assert_eq(parity(0b00000000), 0);
+}
