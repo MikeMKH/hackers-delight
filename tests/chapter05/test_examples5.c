@@ -396,3 +396,95 @@ Test(nlz_log_relation, ceil_log2) {
       "ceil(log2(%d)): got %d, want %d", x, actual, expected);
   }
 }
+
+int ntz_using_nlz_32(uint32_t x) {
+  if (x == 0) return 32;
+  return 31 - nlz_32(x & (uint32_t)(-((int32_t)x)));
+}
+
+Test(ntz_using_nlz_32, examples) {
+  cr_assert_eq(ntz_using_nlz_32(0x00000000), 32);
+  cr_assert_eq(ntz_using_nlz_32(0x00000001), 0);
+  cr_assert_eq(ntz_using_nlz_32(0x00000002), 1);
+  cr_assert_eq(ntz_using_nlz_32(0x00000004), 2);
+  cr_assert_eq(ntz_using_nlz_32(0x00000008), 3);
+  cr_assert_eq(ntz_using_nlz_32(0x00000010), 4);
+  cr_assert_eq(ntz_using_nlz_32(0x00000020), 5);
+  cr_assert_eq(ntz_using_nlz_32(0x00000040), 6);
+  cr_assert_eq(ntz_using_nlz_32(0x00000080), 7);
+  cr_assert_eq(ntz_using_nlz_32(0xFFF00F80), 7);
+}
+
+int ntz_using_pop(uint8_t x) {
+  if (x == 0) return 8;
+  return pop((uint8_t)((x & (uint8_t)(-((int8_t)x))) - 1));
+}
+
+Test(ntz_using_pop, examples) {
+  cr_assert_eq(ntz_using_pop(0x00), 8);
+  cr_assert_eq(ntz_using_pop(0x01), 0);
+  cr_assert_eq(ntz_using_pop(0xF1), 0);
+  cr_assert_eq(ntz_using_pop(0x02), 1);
+  cr_assert_eq(ntz_using_pop(0xF2), 1);
+  cr_assert_eq(ntz_using_pop(0x04), 2);
+  cr_assert_eq(ntz_using_pop(0xA4), 2);
+  cr_assert_eq(ntz_using_pop(0x08), 3);
+  cr_assert_eq(ntz_using_pop(0x10), 4);
+  cr_assert_eq(ntz_using_pop(0x20), 5);
+  cr_assert_eq(ntz_using_pop(0x40), 6);
+  cr_assert_eq(ntz_using_pop(0x80), 7);
+}
+
+int ntz(uint8_t x) {
+  if (x == 0) return 8;
+  int n = 1;
+  if ((x & 0x0F) == 0) { n += 4; x >>= 4; }
+  if ((x & 0x03) == 0) { n += 2; x >>= 2; }
+  return n - (x & 1);
+}
+
+Test(ntz, examples) {
+  cr_assert_eq(ntz(0x00), 8);
+  cr_assert_eq(ntz(0x01), 0);
+  cr_assert_eq(ntz(0xF1), 0);
+  cr_assert_eq(ntz(0x02), 1);
+  cr_assert_eq(ntz(0xF2), 1);
+  cr_assert_eq(ntz(0x04), 2);
+  cr_assert_eq(ntz(0xA4), 2);
+  cr_assert_eq(ntz(0x08), 3);
+  cr_assert_eq(ntz(0x10), 4);
+  cr_assert_eq(ntz(0x20), 5);
+  cr_assert_eq(ntz(0x40), 6);
+  cr_assert_eq(ntz(0x80), 7);
+}
+
+int ntz_search_tree(uint8_t x) {
+  if (x & 15) {
+    if (x & 3) {
+      if (x & 1) return 0;
+      else return 1;
+    } else if (x & 4) return 2;
+      else return 3;
+  } else  if (x & 0x30) {
+    if (x & 0x10) return 4;
+    else return 5;
+  } else if (x & 0x40) return 6;
+    else if (x) return 7;
+    else return 8;
+}
+
+Test(ntz_search_tree, examples) {
+  cr_assert_eq(ntz_search_tree(0x00), 8);
+  cr_assert_eq(ntz_search_tree(0x01), 0);
+  cr_assert_eq(ntz_search_tree(0xFF), 0);
+  cr_assert_eq(ntz_search_tree(0xF1), 0);
+  cr_assert_eq(ntz_search_tree(0x02), 1);
+  cr_assert_eq(ntz_search_tree(0xF2), 1);
+  cr_assert_eq(ntz_search_tree(0x04), 2);
+  cr_assert_eq(ntz_search_tree(0xA4), 2);
+  cr_assert_eq(ntz_search_tree(0x08), 3);
+  cr_assert_eq(ntz_search_tree(0x10), 4);
+  cr_assert_eq(ntz_search_tree(0x20), 5);
+  cr_assert_eq(ntz_search_tree(0x40), 6);
+  cr_assert_eq(ntz_search_tree(0x80), 7);
+}
