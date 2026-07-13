@@ -114,3 +114,61 @@ Test(strlen_zbyter, agrees_with_libc) {
     free(s);
   }
 }
+
+int ffstr1_loop(uint32_t x, int n) {
+  int k, p;
+  p = 0;
+  while (x != 0) {
+    k = __builtin_clz(x);
+    x <<= k;
+    p += k;
+    /* count leading 1's and guard clz(0) undefined behavior when x is all-ones */
+    k = (x == 0xFFFFFFFFu) ? 32 : __builtin_clz(~x);
+    if (k >= n) return p;
+    x <<= k;
+    p += k;
+  }
+  return 32;
+}
+
+Test(ffstr1_loop, examples) {
+  cr_assert_eq(ffstr1_loop(0x00000000, 1),  32);
+  cr_assert_eq(ffstr1_loop(0x00000000, 32), 32);
+  cr_assert_eq(ffstr1_loop(0xF0000000, 1),  0);
+  cr_assert_eq(ffstr1_loop(0xF0000000, 4),  0);
+  cr_assert_eq(ffstr1_loop(0xF0000000, 5),  32);
+  cr_assert_eq(ffstr1_loop(0xF000FF00, 5),  16);
+  cr_assert_eq(ffstr1_loop(0xF000FFFF, 5),  16);
+  cr_assert_eq(ffstr1_loop(0xFFFFFFFF, 32), 0);
+  cr_assert_eq(ffstr1_loop(0x0000000F, 4),  28);
+  cr_assert_eq(ffstr1_loop(0x00F00000, 4),  8);
+  cr_assert_eq(ffstr1_loop(0x55555555, 2),  32); /* alternating, no run of 2 */
+  cr_assert_eq(ffstr1_loop(0x00FF0000, 8),  8);
+}
+
+int ffstr1_shift_and_sequence(uint32_t x, int n) {
+  int s;
+  
+  while (n > 1) {
+    s = n >> 1;
+    x = x & (x << s);
+    n -= s;
+  }
+  /* count leading 1's and guard clz(0) undefined behavior when x is all-ones */
+  return (x == 0) ? 32 : __builtin_clz(x);
+}
+
+Test(ffstr1_shift_and_sequence, examples) {
+  cr_assert_eq(ffstr1_shift_and_sequence(0x00000000, 1),  32);
+  cr_assert_eq(ffstr1_shift_and_sequence(0x00000000, 32), 32);
+  cr_assert_eq(ffstr1_shift_and_sequence(0xF0000000, 1),  0);
+  cr_assert_eq(ffstr1_shift_and_sequence(0xF0000000, 4),  0);
+  cr_assert_eq(ffstr1_shift_and_sequence(0xF0000000, 5),  32);
+  cr_assert_eq(ffstr1_shift_and_sequence(0xF000FF00, 5), 16);
+  cr_assert_eq(ffstr1_shift_and_sequence(0xF000FFFF, 5), 16);
+  cr_assert_eq(ffstr1_shift_and_sequence(0xFFFFFFFF, 32), 0);
+  cr_assert_eq(ffstr1_shift_and_sequence(0x0000000F, 4), 28);
+  cr_assert_eq(ffstr1_shift_and_sequence(0x00F00000, 4), 8);
+  cr_assert_eq(ffstr1_shift_and_sequence(0x55555555, 2),  32); /* alternating, no run of 2 */
+  cr_assert_eq(ffstr1_shift_and_sequence(0x00FF0000, 8),  8);
+}
