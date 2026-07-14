@@ -172,3 +172,20 @@ Test(ffstr1_shift_and_sequence, examples) {
   cr_assert_eq(ffstr1_shift_and_sequence(0x55555555, 2),  32); /* alternating, no run of 2 */
   cr_assert_eq(ffstr1_shift_and_sequence(0x00FF0000, 8),  8);
 }
+
+int maxstr1(uint32_t x) {
+  int k;
+  for (k = 0; x != 0; k++) x &= 2*x;
+  return k;
+}
+
+Test(maxstr1, examples) {
+  cr_assert_eq(maxstr1(0x00000000), 0);
+  cr_assert_eq(maxstr1(0x00000001), 1);
+  cr_assert_eq(maxstr1(0x22222203), 2);
+  cr_assert_eq(maxstr1(0x00000007), 3);
+  cr_assert_eq(maxstr1(0x0D0E0A0F), 4);
+  cr_assert_eq(maxstr1(0x0F0F10FF), 8);
+  cr_assert_eq(maxstr1(0x11110FFF), 12);
+  cr_assert_eq(maxstr1(0xFFFFFFFF), 32);
+}
