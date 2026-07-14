@@ -189,3 +189,83 @@ Test(maxstr1, examples) {
   cr_assert_eq(maxstr1(0x11110FFF), 12);
   cr_assert_eq(maxstr1(0xFFFFFFFF), 32);
 }
+
+int fmaxstr1(uint32_t x, int *apos) {
+  uint32_t y;
+  int s;
+  
+  if (x == 0) { *apos = 0; return 0; }
+  y = x & (x << 1);
+  if (y == 0) { s = 1; goto L1; }
+  x = y & (y << 2);
+  if (x == 0) { s = 2; x = y; goto L2; }
+  y = x & (x << 4);
+  if (y == 0) { s = 4; goto L4; }
+  x = y & (y << 8);
+  if (x == 0) { s = 8; x = y; goto L8; }
+  if (x == 0xFFFF8000) { *apos = 0; return 32; }
+  s = 16; goto L16; /* unnecessary but it gets rid of warning */
+  
+L16: y = x & (x << 8);
+  if (y != 0) { s += 8; x = y; }
+L8: y = x & (x << 4);
+  if (y != 0) { s += 4; x = y; }
+L4: y = x & (x << 2);
+  if (y != 0) { s += 2; x = y; }
+L2: y = x & (x << 1);
+  if (y != 0) { s += 1; x = y; }
+L1: *apos = __builtin_clz(x);
+  return s;
+}
+
+Test(fmaxstr1, examples) {
+  int apos;
+  cr_assert_eq(fmaxstr1(0x00000000, &apos), 0);
+  cr_assert_eq(apos, 0);
+  cr_assert_eq(fmaxstr1(0x00000001, &apos), 1);
+  cr_assert_eq(apos, 31);
+  cr_assert_eq(fmaxstr1(0x22222203, &apos), 2);
+  cr_assert_eq(apos, 30);
+  cr_assert_eq(fmaxstr1(0x00000007, &apos), 3);
+  cr_assert_eq(apos, 29);
+  cr_assert_eq(fmaxstr1(0x0D0E0A0F, &apos), 4);
+  cr_assert_eq(apos, 28);
+  cr_assert_eq(fmaxstr1(0x0F0F10FF, &apos), 8);
+  cr_assert_eq(apos, 24);
+  cr_assert_eq(fmaxstr1(0x11110FFF, &apos), 12);
+  cr_assert_eq(apos, 20);
+  cr_assert_eq(fmaxstr1(0xFFFFFFFF, &apos), 32);
+  cr_assert_eq(apos, 0);
+}
+
+int fminstr1(uint32_t x, int *apos) {
+  int k;
+  uint32_t b, e; /* b = beginning of run, e = end of run */
+  
+  if (x == 0) { *apos = 32; return 0; }
+  b = ~(x >> 1) & x; /* 0-1 transitions */
+  e = x & ~(x << 1); /* 1-0 transitions */
+  for (k = 1; (b & e) == 0; k++) e <<= 1; /* shift e until it overlaps b */
+  *apos = __builtin_clz(b & e);
+  return k;
+}
+
+Test(fminstr1, examples) {
+  int apos;
+  cr_assert_eq(fminstr1(0x00000000, &apos), 0);
+  cr_assert_eq(apos, 32);
+  cr_assert_eq(fminstr1(0x00000001, &apos), 1);
+  cr_assert_eq(apos, 31);
+  cr_assert_eq(fminstr1(0x22222203, &apos), 1);
+  cr_assert_eq(apos, 2);
+  cr_assert_eq(fminstr1(0x00000007, &apos), 3);
+  cr_assert_eq(apos, 29);
+  cr_assert_eq(fminstr1(0x0D0E0A0F, &apos), 1);
+  cr_assert_eq(apos, 7);
+  cr_assert_eq(fminstr1(0x0F0F10FF, &apos), 1);
+  cr_assert_eq(apos, 19);
+  cr_assert_eq(fminstr1(0x11110FFF, &apos), 1);
+  cr_assert_eq(apos, 3);
+  cr_assert_eq(fminstr1(0xFFFFFFFF, &apos), 32);
+  cr_assert_eq(apos, 0);
+}
