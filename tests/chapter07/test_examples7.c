@@ -139,3 +139,129 @@ Test(increment_rev, increments_reversed_integers) {
     );
   }
 }
+
+uint32_t outer_shuffle(uint32_t x) {
+  x = ((x & 0x0000FF00) <<  8) | ((x >>  8) & 0x0000FF00) | (x & 0xFF0000FF);
+  x = ((x & 0x00F000F0) <<  4) | ((x >>  4) & 0x00F000F0) | (x & 0xF00FF00F);
+  x = ((x & 0x0C0C0C0C) <<  2) | ((x >>  2) & 0x0C0C0C0C) | (x & 0xC3C3C3C3);
+  x = ((x & 0x22222222) <<  1) | ((x >>  1) & 0x22222222) | (x & 0x99999999);
+  return x;
+}
+
+Test(outer_shuffle, half_ones) {
+  /* left half all 1s, right half all 0s -> alternating 10101010... */
+  cr_assert_eq(outer_shuffle(0xFFFF0000), 0xAAAAAAAA);
+  /* left half all 0s, right half all 1s -> alternating 01010101... */
+  cr_assert_eq(outer_shuffle(0x0000FFFF), 0x55555555);
+}
+
+Test(outer_shuffle, identity_cases) {
+  cr_assert_eq(outer_shuffle(0x00000000), 0x00000000);
+  cr_assert_eq(outer_shuffle(0xFFFFFFFF), 0xFFFFFFFF);
+}
+
+Test(outer_shuffle, cycle_test) {
+  /*
+    0xFFFF0000 → 0xAAAAAAAA → 0xCCCCCCCC → 0xF0F0F0F0 → 0xFF00FF00 → 0xFFFF0000
+  */
+  cr_assert_eq(outer_shuffle(0xFFFF0000), 0xAAAAAAAA);
+  cr_assert_eq(outer_shuffle(0xAAAAAAAA), 0xCCCCCCCC);
+  cr_assert_eq(outer_shuffle(0xCCCCCCCC), 0xF0F0F0F0);
+  cr_assert_eq(outer_shuffle(0xF0F0F0F0), 0xFF00FF00);
+  cr_assert_eq(outer_shuffle(0xFF00FF00), 0xFFFF0000);
+}
+
+Test(outer_shuffle, single_bits) {
+  /* bit 31 (MSB of left half) -> bit 31 */
+  cr_assert_eq(outer_shuffle(0x80000000), 0x80000000);
+  /* bit 16 (LSB of left half) -> bit 1 */
+  cr_assert_eq(outer_shuffle(0x00010000), 0x00000002);
+  /* bit 15 (MSB of right half) -> bit 30 */
+  cr_assert_eq(outer_shuffle(0x00008000), 0x40000000);
+  /* bit 0 (LSB of right half) -> bit 0 */
+  cr_assert_eq(outer_shuffle(0x00000001), 0x00000001);
+}
+
+Test(outer_shuffle, cycle_length_5) {
+  uint32_t x = 0x01234567;
+  uint32_t orig = x;
+  for (int i = 0; i < 5; i++) x = outer_shuffle(x);
+  cr_assert_eq(x, orig, "shuffle cycle length is not 5");
+}
+
+Test(outer_shuffle, multiplicative_order_of_2_mod_31) {
+  /* 2^5 ≡ 1 (mod 31) means shuffle has cycle length 5 */
+  uint32_t power = 1;
+  for (int i = 0; i < 5; i++) power = (power * 2) % 31;
+  cr_assert_eq(power, 1, "2^5 mod 31 should be 1");
+  
+  /* a smaller power does not work */
+  power = 1;
+  for (int i = 0; i < 4; i++) {
+    power = (power * 2) % 31;
+    cr_assert_neq(power, 1, "2^%d mod 31 should not be 1", i + 1);
+  }
+}
+
+Test(outer_shuffle, cycle_traces_powers_of_2_mod_31) {
+  /* each shuffle step is multiplication by 2 mod 31 in bit-position space */
+  /* 0xFFFF0000 has bits 16-31 set, after shuffle bit i moves to 2i mod 31 */
+  uint32_t x = 0xFFFF0000;
+  uint32_t cycle[] = {
+    0xFFFF0000,  /* bits at positions: 16,17,...,31         */
+    0xAAAAAAAA,  /* bits at positions: 32mod31=1,2,4,6,...  */
+    0xCCCCCCCC,
+    0xF0F0F0F0,
+    0xFF00FF00,
+  };
+  for (int i = 0; i < 5; i++) {
+    cr_assert_eq(x, cycle[i], "step %d: got 0x%08X", i, x);
+    x = outer_shuffle(x);
+  }
+  cr_assert_eq(x, cycle[0], "should return to start after 5 shuffles");
+}
+
+uint32_t inner_shuffle(uint32_t x) {
+  x = ((x & 0x22222222) <<  1) | ((x >>  1) & 0x22222222) | (x & 0x99999999);
+  x = ((x & 0x0C0C0C0C) <<  2) | ((x >>  2) & 0x0C0C0C0C) | (x & 0xC3C3C3C3);
+  x = ((x & 0x00F000F0) <<  4) | ((x >>  4) & 0x00F000F0) | (x & 0xF00FF00F);
+  x = ((x & 0x0000FF00) <<  8) | ((x >>  8) & 0x0000FF00) | (x & 0xFF0000FF);
+  return x;
+}
+
+Test(inner_shuffle, consistent_with_outer_inverse) {
+  /* inner(outer(x)) = x means inner undoes what outer did */
+  cr_assert_eq(inner_shuffle(outer_shuffle(0x0000FFFF)), 0x0000FFFF);
+  cr_assert_eq(inner_shuffle(outer_shuffle(0xFFFF0000)), 0xFFFF0000);
+}
+
+Test(inner_shuffle, is_inverse_of_outer) {
+  uint32_t cases[] = {
+    0x00000000, 0xFFFFFFFF, 0xFFFF0000, 0x0000FFFF,
+    0xAAAAAAAA, 0x55555555, 0x01234567, 0xDEADBEEF,
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    cr_assert_eq(
+      inner_shuffle(outer_shuffle(cases[i])), cases[i],
+      "inner(outer(0x%08X)) != identity", cases[i]
+    );
+    cr_assert_eq(outer_shuffle(
+      inner_shuffle(cases[i])), cases[i],
+      "outer(inner(0x%08X)) != identity", cases[i]
+    );
+  }
+}
+
+Test(inner_shuffle, half_ones) {
+  cr_assert_eq(outer_shuffle(0x00FF00FF), 0x0000FFFF);
+  cr_assert_eq(outer_shuffle(0xFF00FF00), 0xFFFF0000);
+}
+
+Test(inner_shuffle, cycle_length_5) {
+  uint32_t cases[] = { 0x01234567, 0xDEADBEEF, 0xFFFF0000 };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    uint32_t x = cases[i];
+    for (int j = 0; j < 5; j++) x = inner_shuffle(x);
+    cr_assert_eq(x, cases[i], "5x inner shuffle failed for 0x%08X", cases[i]);
+  }
+}
