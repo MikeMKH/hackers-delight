@@ -265,3 +265,56 @@ Test(inner_shuffle, cycle_length_5) {
     cr_assert_eq(x, cases[i], "5x inner shuffle failed for 0x%08X", cases[i]);
   }
 }
+
+uint32_t compress(uint32_t x, uint32_t m) {
+  uint32_t r, s, b; /* result, shift, mask bit */
+  
+  r = s = 0;
+  do {
+    b = m & 1;
+    r |= ((x & b) << s);
+    s += b;
+    x >>= 1; m >>= 1;
+  } while (m);
+  return r;
+}
+
+Test(compress, known_values) {
+  cr_assert_eq(compress(0x01234567, 0x000000FF), 0x00000067);
+  cr_assert_eq(compress(0x01234567, 0x0000FF00), 0x00000045);
+  cr_assert_eq(compress(0x01234567, 0x00FF0000), 0x00000023);
+  cr_assert_eq(compress(0x01234567, 0xFF000000), 0x00000001);
+}
+
+Test(compress, identity) {
+  cr_assert_eq(compress(0x01234567, 0xFFFFFFFF), 0x01234567);
+}
+
+Test(compress, zero_mask) {
+  cr_assert_eq(compress(0x01234567, 0x00000000), 0x00000000);
+}
+
+Test(compress, single_bit_masks) {
+  for (int i = 0; i < 32; i++) {
+    uint32_t mask = 1U << i;
+    cr_assert_eq(compress(0x01234567, mask), (0x01234567 & mask) ? 1 : 0);
+  }
+}
+
+Test(compress, pop_result_equals_pop_value_and_mask) {
+  uint32_t cases[] = { 0x01234567, 0xDEADBEEF, 0xAAAAAAAA, 0x55555555 };
+  uint32_t masks[] = { 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000,
+                       0xAAAAAAAA, 0x55555555, 0xFFFFFFFF };
+  
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
+      uint32_t x = cases[i];
+      uint32_t m = masks[j];
+      cr_assert_eq(
+        __builtin_popcount(compress(x, m)),
+        __builtin_popcount(x & m),
+        "popcount mismatch for x=0x%08X, m=0x%08X", x, m
+      );
+    }
+  }
+}
