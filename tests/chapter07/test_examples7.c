@@ -318,3 +318,108 @@ Test(compress, pop_result_equals_pop_value_and_mask) {
     }
   }
 }
+
+uint32_t expand(uint32_t x, uint32_t m) {
+  uint32_t m0, mk, mp, mv, t;
+  uint32_t array[5];
+  int i;
+  
+  m0 = m;
+  mk = ~m << 1;
+  
+  for (i = 0; i < 5; i++) {
+    mp = mk ^ (mk << 1);
+    mp ^= (mp << 2);
+    mp ^= (mp << 4);
+    mp ^= (mp << 8);
+    mp ^= (mp << 16);
+    mv = mp & m;
+    array[i] = mv;
+    m = (m ^ mv) | (mv >> (1 << i));
+    mk &= ~mp;
+  }
+  
+  for (i = 4; i >= 0; i--) {
+    mv = array[i];
+    t = x << (1 << i);
+    x = (x & ~mv) | (t & mv);
+  }
+  
+  return x & m0;
+}
+
+Test(expand, known_values) {
+  cr_assert_eq(expand(0x00000067, 0x000000FF), 0x01234567 & 0x000000FF);
+  cr_assert_eq(expand(0x00000045, 0x0000FF00), 0x01234567 & 0x0000FF00);
+  cr_assert_eq(expand(0x00000023, 0x00FF0000), 0x01234567 & 0x00FF0000);
+  cr_assert_eq(expand(0x00000001, 0xFF000000), 0x01234567 & 0xFF000000);
+}
+
+Test(expand, identity) {
+  cr_assert_eq(expand(0x01234567, 0xFFFFFFFF), 0x01234567);
+}
+
+Test(expand, zero_mask) {
+  cr_assert_eq(expand(0x01234567, 0x00000000), 0x00000000);
+}
+
+Test(expand, single_bit_mask) {
+  cr_assert_eq(expand(0x00000001, 0x00000001), 0x00000001);
+  cr_assert_eq(expand(0x00000000, 0x00000001), 0x00000000);
+  cr_assert_eq(expand(0x00000001, 0x80000000), 0x80000000);
+  cr_assert_eq(expand(0x00000000, 0x80000000), 0x00000000);
+}
+
+Test(expand, alternating_masks) {
+  /* expand into even bit positions */
+  cr_assert_eq(expand(0x0000FFFF, 0xAAAAAAAA), 0xAAAAAAAA);
+  /* expand into odd bit positions */
+  cr_assert_eq(expand(0x0000FFFF, 0x55555555), 0x55555555);
+}
+
+Test(expand, compress_expand_x_mask_equals_x) {
+  uint32_t cases[] = { 0x01234567, 0xDEADBEEF, 0xAAAAAAAA, 0x55555555 };
+  uint32_t masks[] = { 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000,
+                       0xAAAAAAAA, 0x55555555, 0xFFFFFFFF };
+  
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
+      uint32_t x = cases[i]; uint32_t m = masks[j];
+      uint32_t value = expand(compress(x, m), m);
+      cr_assert_eq(
+        value, x & m,
+        "expand(compress(0x%08X, 0x%08X), 0x%08X) != (0x%08X & 0x%08X)", x, m, m, x, m
+      );
+    }
+  }
+}
+
+Test(expand, popcount_of_result_matches_mask) {
+  /* expand(x, m) always has at most popcount(m) bits set,
+     and exactly popcount(m) bits set when x has enough low bits */
+  uint32_t masks[] = { 0x000000FF, 0xAAAAAAAA, 0x55555555, 0x0F0F0F0F };
+  for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
+    uint32_t m = masks[j];
+    uint32_t result = expand(0xFFFFFFFF, m);
+    cr_assert_eq(
+      __builtin_popcount(result),
+      __builtin_popcount(m),
+      "popcount mismatch for mask 0x%08X", m
+    );
+  }
+}
+
+Test(expand, result_always_subset_of_mask) {
+  /* expand(x, m) & ~m must always be zero -- no bits outside mask */
+  uint32_t cases[] = { 0x00000000, 0xFFFFFFFF, 0x01234567, 0xDEADBEEF };
+  uint32_t masks[] = { 0x000000FF, 0xAAAAAAAA, 0x55555555, 0xFF00FF00 };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
+      uint32_t result = expand(cases[i], masks[j]);
+      cr_assert_eq(
+        result & ~masks[j], 0u,
+        "expand(0x%08X, 0x%08X) has bits outside mask", cases[i], masks[j]
+      );
+    }
+  }
+}
