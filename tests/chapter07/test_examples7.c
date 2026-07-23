@@ -304,22 +304,40 @@ Test(compress, single_bit_masks) {
 Test(compress, pop_result_equals_pop_value_and_mask) {
   uint32_t cases[] = { 0x01234567, 0xDEADBEEF, 0xAAAAAAAA, 0x55555555 };
   uint32_t masks[] = { 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000,
-                       0xAAAAAAAA, 0x55555555, 0xFFFFFFFF };
-  
-  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
-    for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
-      uint32_t x = cases[i];
-      uint32_t m = masks[j];
-      cr_assert_eq(
-        __builtin_popcount(compress(x, m)),
-        __builtin_popcount(x & m),
-        "popcount mismatch for x=0x%08X, m=0x%08X", x, m
-      );
+    0xAAAAAAAA, 0x55555555, 0xFFFFFFFF };
+    
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+      for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
+        uint32_t x = cases[i];
+        uint32_t m = masks[j];
+        cr_assert_eq(
+          __builtin_popcount(compress(x, m)),
+          __builtin_popcount(x & m),
+          "popcount mismatch for x=0x%08X, m=0x%08X", x, m
+        );
+      }
     }
   }
-}
-
-uint32_t expand(uint32_t x, uint32_t m) {
+  
+  uint32_t compress_left(uint32_t x, uint32_t m) {
+    uint32_t r, s, b; /* result, shift, mask bit */
+  
+    r = s = 0;
+    do {
+      b = m & 1;
+      r |= ((x & b) << (31 - s));
+      s += b;
+      x >>= 1; m >>= 1;
+    } while (m);
+    return r;
+  }
+  
+  Test(compress_left, packs_into_high_bits) {
+    cr_assert_eq(compress_left(0x00000001, 0x00000001), 0x80000000);
+    cr_assert_eq(compress_left(0x00000003, 0x00000003), 0xC0000000);
+  }
+  
+  uint32_t expand(uint32_t x, uint32_t m) {
   uint32_t m0, mk, mp, mv, t;
   uint32_t array[5];
   int i;
@@ -421,5 +439,113 @@ Test(expand, result_always_subset_of_mask) {
         "expand(0x%08X, 0x%08X) has bits outside mask", cases[i], masks[j]
       );
     }
+  }
+}
+
+uint32_t sag(uint32_t x, uint32_t m) {
+  return compress_left(x, m) | compress(x, ~m);
+}
+
+Test(sag, known_values) {
+  cr_assert_eq(sag(0x01234567, 0x000000FF), 0xE6012345);
+  cr_assert_eq(sag(0x01234567, 0xFFFFFFFF), 0xE6A2C480); /* all bits selected -> identity */
+  cr_assert_eq(sag(0x01234567, 0x00000000), 0x01234567); /* no bits selected -> identity */
+}
+
+Test(sag, popcount_invariant) {
+  uint32_t cases[] = { 0x01234567, 0xDEADBEEF, 0xAAAAAAAA, 0x55555555 };
+  uint32_t masks[] = { 0x000000FF, 0xAAAAAAAA, 0x55555555, 0x0F0F0F0F };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
+      cr_assert_eq(
+        __builtin_popcount(sag(cases[i], masks[j])),
+        __builtin_popcount(cases[i]),
+        "popcount changed for x=0x%08X m=0x%08X", cases[i], masks[j]
+      );
+    }
+  }
+}
+
+Test(sag, selected_bits_in_high_half) {
+  /* bits selected by m should appear in the high popcount(m) positions */
+  uint32_t x = 0xFFFFFFFF;
+  uint32_t m = 0x000000FF; /* 8 bits selected */
+  uint32_t result = sag(x, m);
+  /* top 8 bits should all be 1 since all selected bits are 1 */
+  cr_assert_eq(result >> 24, 0xFF);
+}
+
+Test(sag, unselected_bits_in_low_half) {
+  uint32_t x = 0xFFFFFFFF;
+  uint32_t m = 0xFFFFFF00; /* 24 bits selected, 8 unselected */
+  uint32_t result = sag(x, m);
+  /* bottom 8 bits should all be 1 since all unselected bits are 1 */
+  cr_assert_eq(result & 0xFF, 0xFF);
+}
+
+uint32_t permute(uint32_t x, uint32_t p[5]) {
+    /* 15-step SAG-based bit permutation (stable binary radix sort) */
+    x      = sag(x,    p[0]);
+    p[1]   = sag(p[1], p[0]);
+    p[2]   = sag(p[2], p[0]);
+    p[3]   = sag(p[3], p[0]);
+    p[4]   = sag(p[4], p[0]);
+
+    x      = sag(x,    p[1]);
+    p[2]   = sag(p[2], p[1]);
+    p[3]   = sag(p[3], p[1]);
+    p[4]   = sag(p[4], p[1]);
+
+    x      = sag(x,    p[2]);
+    p[3]   = sag(p[3], p[2]);
+    p[4]   = sag(p[4], p[2]);
+
+    x      = sag(x,    p[3]);
+    p[4]   = sag(p[4], p[3]);
+
+    x      = sag(x,    p[4]);
+    return x;
+}
+
+Test(permute, all_same_p_equals_single_sag) {
+  /* when all p[i] are identical, permute == sag(x, p[0]) */
+  uint32_t cases[] = { 0x01234567, 0xDEADBEEF, 0xAAAAAAAA, 0x00000000, 0xFFFFFFFF };
+  uint32_t masks[] = { 0xAAAAAAAA, 0x55555555, 0xFF00FF00, 0x0F0F0F0F };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    for (size_t j = 0; j < sizeof masks / sizeof masks[0]; j++) {
+      uint32_t x = cases[i];
+      uint32_t m = masks[j];
+      uint32_t p[5] = { m, m, m, m, m };
+      cr_assert_eq(
+        permute(x, p),
+        sag(x, m),
+        "permute(0x%08X, all 0x%08X) != sag result", x, m
+      );
+    }
+  }
+}
+
+Test(permute, all_zeros_x) {
+  uint32_t p[5] = { 0xAAAAAAAA, 0xCCCCCCCC, 0xF0F0F0F0, 0xFF00FF00, 0xFFFF0000 };
+  cr_assert_eq(permute(0x00000000, p), 0x00000000);
+}
+
+Test(permute, all_ones_x) {
+  uint32_t p[5] = { 0xAAAAAAAA, 0xCCCCCCCC, 0xF0F0F0F0, 0xFF00FF00, 0xFFFF0000 };
+  cr_assert_eq(permute(0xFFFFFFFF, p), 0xFFFFFFFF);
+}
+
+Test(permute, popcount_preserved) {
+  uint32_t p[5] = { 0xAAAAAAAA, 0xCCCCCCCC, 0xF0F0F0F0, 0xFF00FF00, 0xFFFF0000 };
+  uint32_t cases[] = { 0x01234567, 0xDEADBEEF, 0xAAAAAAAA, 0x55555555 };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    uint32_t pp[5];
+    memcpy(pp, p, sizeof p);
+    uint32_t result = permute(cases[i], pp);
+    cr_assert_eq(
+      __builtin_popcount(result),
+      __builtin_popcount(cases[i]),
+      "popcount changed for x=0x%08X", cases[i]
+    );
   }
 }
