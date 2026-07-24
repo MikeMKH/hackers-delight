@@ -549,3 +549,109 @@ Test(permute, popcount_preserved) {
     );
   }
 }
+
+uint64_t lru_reference(uint64_t m, int i) {
+  /* mark line i as most recently used */
+  m |=  (uint64_t)0xFF << (8 * i);    /* set all bits in row i */
+  m &= ~(0x0101010101010101ULL << i); /* clear column i */
+  return m;
+}
+
+int lru_find(uint64_t m) {
+  /* find least recently used line (first all-zero byte) */
+  for (int i = 0; i < 8; i++) {
+    if (((m >> (8 * i)) & 0xFF) == 0) return i;
+  }
+  return -1; /* should never happen */
+}
+
+Test(lru, initial_state_all_zero) {
+  /* at start, line 0 is LRU (first all-zero byte) */
+  uint64_t m = 0x0000000000000000ULL;
+  cr_assert_eq(lru_find(m), 0);
+}
+
+Test(lru, reference_single_line) {
+  uint64_t m = 0x0000000000000000ULL;
+  
+  /* mark line 0 as most recently used */
+  m = lru_reference(m, 0);
+  
+  /* line 0 is now MRU, line 1 is LRU */
+  cr_assert_eq(lru_find(m), 1);
+}
+
+Test(lru, reference_sequence) {
+  uint64_t m = 0x0000000000000000ULL;
+  
+  for (int i = 0; i < 8; i++) {
+    /* reference lines in order 0,1,2,3,4,5,6,7 */
+    m = lru_reference(m, i);
+  }
+  
+  /* line 0 was referenced first so is LRU */
+  cr_assert_eq(lru_find(m), 0);
+}
+
+Test(lru, reference_sequence_reverse) {
+  uint64_t m = 0x0000000000000000ULL;
+  
+  for (int i = 7; i >= 0; i--) {
+    /* reference lines in order 7,6,5,4,3,2,1,0 */
+    m = lru_reference(m, i);
+  }
+  
+  /* line 7 was referenced first so is LRU */
+  cr_assert_eq(lru_find(m), 7);
+}
+
+Test(lru, re_reference_updates_lru) {
+  uint64_t m = 0x0000000000000000ULL;
+  
+  /* reference 0,1,2 line 0 is LRU */
+  m = lru_reference(m, 0);
+  m = lru_reference(m, 1);
+  m = lru_reference(m, 2);
+  
+  /* line 3 never referenced */
+  cr_assert_eq(lru_find(m), 3);
+  
+  /* now re-reference line 3, line 4 becomes LRU */
+  m = lru_reference(m, 3);
+  cr_assert_eq(lru_find(m), 4);
+}
+
+Test(lru, mru_line_has_full_byte) {
+  uint64_t m = 0x0000000000000000ULL;
+  
+  /* after referencing all 8 lines in order, line 7 (last) is MRU */
+  for (int i = 0; i < 8; i++) m = lru_reference(m, i);
+  
+  /* byte 7 (MRU) should be 0xFF with column 7 cleared = 0x7F */
+  uint8_t byte7 = (m >> 56) & 0xFF;
+  cr_assert_eq(byte7, 0x7F, "MRU byte should be 0x7F (all set except own column)");
+}
+
+Test(lru, lru_line_has_zero_byte) {
+  uint64_t m = 0x0000000000000000ULL;
+  
+  for (int i = 1; i < 8; i++) m = lru_reference(m, i);
+  
+  /* line 0 never referenced, its byte should be 0 */
+  uint8_t byte0 = m & 0xFF;
+  cr_assert_eq(byte0, 0x00);
+  cr_assert_eq(lru_find(m), 0);
+}
+
+Test(lru, reference_order_3_1_2_0) {
+  uint64_t m = 0x0000000000000000ULL;
+  
+  m = lru_reference(m, 3);
+  m = lru_reference(m, 1);
+  m = lru_reference(m, 2);
+  m = lru_reference(m, 0);
+  
+  /* line 3 was referenced first among these, so is LRU of the four */
+  /* lines 4,5,6,7 were never referenced, line 4 is first zero byte */
+  cr_assert_eq(lru_find(m), 4);
+}
