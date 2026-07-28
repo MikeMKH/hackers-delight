@@ -117,3 +117,78 @@ Test(mulmns, negative_two_times_three) {
   cr_assert_eq(w[2], 0xFFFF, "w[2]");
   cr_assert_eq(w[3], 0xFFFF, "w[3]");
 }
+
+int32_t mulhs(int32_t u, int32_t v) {
+  uint32_t u0, v0, w0;
+  int32_t u1, v1, w1, w2, t;
+  
+  u0 = (uint32_t)u & 0xFFFF; u1 = u >> 16;
+  v0 = (uint32_t)v & 0xFFFF; v1 = v >> 16;
+  w0 = u0 * v0;
+  t  = u1 * v0 + (w0 >> 16);
+  w1 = t & 0xFFFF; w2 = t >> 16;
+  w1 += u0 * v1;
+  return u1 * v1 + w2 + (w1 >> 16);
+}
+
+Test(mulhs, basic_cases) {
+  cr_assert_eq(mulhs(0x00010000, 0x00010000), 0x00000001);
+  cr_assert_eq(mulhs(-1, 1), -1);
+  cr_assert_eq(mulhs(-1, -1), 0);
+}
+
+static int32_t mulhs_ref(int32_t u, int32_t v) {
+  return (int32_t)(((int64_t)u * (int64_t)v) >> 32);
+}
+
+Test(mulhs, positive_times_positive) {
+  cr_assert_eq(mulhs(0x00010000, 0x00010000), 1);
+  cr_assert_eq(mulhs(0x00020000, 0x00020000), 4);
+  cr_assert_eq(
+    mulhs(0x7FFFFFFF, 0x7FFFFFFF),
+    mulhs_ref(0x7FFFFFFF, 0x7FFFFFFF)
+  );
+}
+
+Test(mulhs, negative_times_positive) {
+  cr_assert_eq(mulhs(-1,  1), -1);
+  cr_assert_eq(mulhs(-2,  3), -1);  /* -6 >> 32 = -1 */
+  cr_assert_eq(
+    mulhs(0x80000000, 1),
+    mulhs_ref(0x80000000, 1)
+  );
+}
+
+Test(mulhs, negative_times_negative) {
+    cr_assert_eq(mulhs(-1, -1),  0);  /* 1 >> 32 = 0 */
+    cr_assert_eq(mulhs(-2, -2),  0);  /* 4 >> 32 = 0 */
+    cr_assert_eq(
+      mulhs(0x80000000, 0x80000000),
+      mulhs_ref(0x80000000, 0x80000000)
+    );
+}
+
+Test(mulhs, zero_cases) {
+  cr_assert_eq(mulhs(0, 0x7FFFFFFF), 0);
+  cr_assert_eq(mulhs(0x7FFFFFFF, 0), 0);
+  cr_assert_eq(mulhs(0, 0), 0);
+}
+
+Test(mulhs, agrees_with_reference) {
+  int32_t cases[] = {
+    0, 1, -1, 2, -2,
+    0x7FFFFFFF, 0x80000000,
+    0x00010000, 0x0000FFFF,
+    0x12345678, 0xDEADBEEF,
+  };
+  int n = sizeof cases / sizeof cases[0];
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < n; j++) {
+      cr_assert_eq(
+        mulhs(cases[i], cases[j]),
+        mulhs_ref(cases[i], cases[j]),
+        "mulhs(0x%08X, 0x%08X)", cases[i], cases[j]
+      );
+    }
+  }
+}
