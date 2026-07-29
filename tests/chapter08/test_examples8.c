@@ -192,3 +192,66 @@ Test(mulhs, agrees_with_reference) {
     }
   }
 }
+
+int8_t times13(int8_t x) {
+  /* 13 = 1101 */
+  return (x << 3) + (x << 2) + (x << 0);
+}
+
+Test(times13, basic_cases) {
+  cr_assert_eq(times13(0), 0);
+  cr_assert_eq(times13(1), 13);
+  cr_assert_eq(times13(2), 26);
+  cr_assert_eq(times13(3), 39);
+  cr_assert_eq(times13(4), 52);
+}
+
+int32_t times45(int32_t x) {
+  /* 45 = 101101 */
+  int32_t t, r;
+  t = 4 * x;  /* t := 4x */
+  r = x + t;  /* r := 5x */
+  t = 2 * t;  /* t := 8x */
+  r += t;     /* r := 13x */
+  t *= 4;     /* t := 32x */
+  r += t;     /* r := 45x */
+  return r;
+}
+
+Test(times45, basic_cases) {
+  cr_assert_eq(times45(0), 0);
+  cr_assert_eq(times45(1), 45);
+  cr_assert_eq(times45(2), 90);
+  cr_assert_eq(times45(3), 135);
+  cr_assert_eq(times45(4), 180);
+}
+
+int32_t times45_alt(int32_t x) {
+  /* 45 = 101101 */
+  int32_t t1, t2, t3, r;
+  t1 =  4 * x;           /* t1 := 4x */
+  t2 =  8 * x;           /* t2 := 8x */
+  t3 = 32 * x;           /* t3 := 32x */
+  
+  r = t1 + x;            /* r  :=  4x +   x =  5x */
+  t3 += t2;              /* t3 := 32x +  8x = 40x */
+  r += t3;               /* r  :=  5x + 40x = 45x */
+  return r;
+}
+
+Test(times45_alt, basic_cases) {
+  cr_assert_eq(times45_alt(0), 0);
+  cr_assert_eq(times45_alt(1), 45);
+  cr_assert_eq(times45_alt(2), 90);
+  cr_assert_eq(times45_alt(3), 135);
+  cr_assert_eq(times45_alt(4), 180);
+}
+
+Test(times45, agrees_with_alt) {
+  for (int32_t x = -100; x <= 100; x++) {
+    cr_assert_eq(
+      times45(x), times45_alt(x),
+      "times45 and times45_alt disagree for x=%d", x
+    );
+  }
+}
