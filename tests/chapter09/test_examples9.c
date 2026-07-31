@@ -69,3 +69,217 @@ Test(division, invariant_q_times_v_plus_r_equals_u) {
     cr_assert_eq(div_mod(u,v)  *v + rem_mod(u,v),   u, "mod   u=%d v=%d", u, v);
   }
 }
+
+int divmnu(unsigned short q[], unsigned short r[],
+           const unsigned short u[], const unsigned short v[],
+           int m, int n) {
+  const unsigned b = 65536; // Number base (16 bits).
+  unsigned short *un, *vn;  // Normalized form of u, v.
+  unsigned qhat;            // Estimated quotient digit.
+  unsigned rhat;            // A remainder.
+  unsigned p;               // Product of two digits.
+  int s, i, j, t, k;
+  
+  if (m < n || n <= 0 || v[n-1] == 0) return 1;// Return if invalid param.
+  
+  if (n == 1) {                    // Take care of
+    k = 0;                         // the case of a
+    for (j = m - 1; j >= 0; j--) { // single-digit
+      q[j] = (k*b + u[j])/v[0];    // divisor here.
+      k = (k*b + u[j]) - q[j]*v[0];
+    }
+    if (r != NULL) r[0] = k;  return 0;
+  } 
+  
+  // Normalize by shifting v left just enough so that
+  // its high-order bit is on, and shift u left the
+  // same amount. We may have to append a high-order
+  // digit on the dividend; we do that unconditionally.
+  
+  s = __builtin_clz(v[n-1]) - 16; // 0 <= s <= 16.
+  vn = (unsigned short *)alloca(2*n);
+  for (i = n - 1; i > 0; i--) { vn[i] = (v[i] << s) | (v[i-1] >> (16 - s)); }
+  vn[0] = v[0] << s;
+  
+  un = (unsigned short *)alloca(2*(m + 1));
+  un[m] = u[m-1] >> (16 - s);
+  for (i = m - 1; i > 0; i--) { un[i] = (u[i] << s) | (u[i-1] >> (16 - s)); }
+  un[0] = u[0] << s;
+  
+  for (j = m - n; j >= 0; j--) { // Main loop.
+    // Compute estimate qhat of q[j].
+    qhat = (un[j+n]*b + un[j+n-1])/vn[n-1];
+    p = (unsigned)qhat * (unsigned)vn[i];
+    rhat = (un[j+n]*b + un[j+n-1]) - p;
+again:
+    if (qhat >= b || qhat*vn[n-2] > b*rhat + un[j+n-2]) {
+      qhat = qhat - 1;
+      rhat = rhat + vn[n-1];
+      if (rhat < b) goto again;
+    }
+    
+    // Multiply and subtract.
+    k = 0;
+    for (i = 0; i < n; i++) {
+      p = qhat*vn[i];
+      t = un[i+j] - k - (p & 0xFFFF);
+      un[i+j] = t;
+      k = (p >> 16) - (t >> 16);
+    }
+    t = un[j+n] - k;
+    un[j+n] = t;
+    q[j] = qhat;// Store quotient digit.
+    if (t < 0) {// If we subtracted too
+      q[j] = q[j] - 1;// much, add back.
+      k = 0;
+      for (i = 0; i < n; i++) {
+        t = un[i+j] + vn[i] + k;
+        un[i+j] = t;  k = t >> 16;
+      }
+      un[j+n] = un[j+n] + k;
+    }
+  }// End j.
+  
+  // If the caller wants the remainder, unnormalize
+  // it and pass it back.
+  if (r != NULL) {
+    for (i = 0; i < n - 1; i++) { r[i] = (un[i] >> s) | (un[i+1] << (16 - s)); }
+    r[n-1] = un[n-1] >> s;
+  }
+  return 0;
+}
+
+/*
+  helper: build a multiword number from an array of uint32_t limbs
+  into uint16_t digits, little-endian
+*/
+static void to_digits(unsigned short *d, uint32_t val) {
+  d[0] = (unsigned short)(val & 0xFFFF);
+  d[1] = (unsigned short)(val >> 16);
+}
+
+Test(divmnu, invalid_params) {
+  unsigned short q[2], r[2], u[2], v[2];
+  /* n <= 0 */
+  cr_assert_eq(divmnu(q, r, u, v, 2, 0), 1);
+  /* m < n */
+  cr_assert_eq(divmnu(q, r, u, v, 1, 2), 1);
+  /* v[n-1] == 0 */
+  v[0] = 0;
+  cr_assert_eq(divmnu(q, r, u, v, 2, 1), 1);
+}
+
+Test(divmnu, single_digit_divisor) {
+  /* 7 / 3 = 2 rem 1 */
+  unsigned short u[1] = {7};
+  unsigned short v[1] = {3};
+  unsigned short q[1], r[1];
+  cr_assert_eq(divmnu(q, r, u, v, 1, 1), 0);
+  cr_assert_eq(q[0], 2);
+  cr_assert_eq(r[0], 1);
+}
+
+Test(divmnu, single_digit_exact) {
+  /* 12 / 3 = 4 rem 0 */
+  unsigned short u[1] = {12};
+  unsigned short v[1] = {3};
+  unsigned short q[1], r[1];
+  cr_assert_eq(divmnu(q, r, u, v, 1, 1), 0);
+  cr_assert_eq(q[0], 4);
+  cr_assert_eq(r[0], 0);
+}
+
+Test(divmnu, two_digit_by_one_digit) {
+  /* 0x00010000 / 3 = 21845 rem 1 */
+  unsigned short u[2] = {0x0000, 0x0001};  /* 65536 */
+  unsigned short v[1] = {3};
+  unsigned short q[2], r[1];
+  cr_assert_eq(divmnu(q, r, u, v, 2, 1), 0);
+  uint32_t quotient = q[0] | ((uint32_t)q[1] << 16);
+  cr_assert_eq(quotient, 65536 / 3);
+  cr_assert_eq(r[0], 65536 % 3);
+}
+
+Test(divmnu, two_digit_by_two_digit) {
+  /* 0x00020001 / 0x00010001 = 1 rem 0x00010000 */
+  unsigned short u[2], v[2], q[1], r[2];
+  to_digits(u, 0x00020001);
+  to_digits(v, 0x00010001);
+  cr_assert_eq(divmnu(q, r, u, v, 2, 2), 0);
+  cr_assert_eq(q[0], 1);
+  uint32_t rem = r[0] | ((uint32_t)r[1] << 16);
+  cr_assert_eq(rem, 0x00010000);
+}
+
+Test(divmnu, large_quotient) {
+  /* 0xFFFF0000 / 0xFFFF = 0x10000 rem 0 ... actually pick simpler values */
+  /* 0x0002FFFD / 0xFFFF = 3 rem 0 -- 3 * 65535 = 196605 = 0x2FFFD */
+  unsigned short u[2], v[1], q[2], r[1];
+  to_digits(u, (uint32_t)3 * 0xFFFF);  /* 0x0002FFFD */
+  v[0] = 0xFFFF;
+  cr_assert_eq(divmnu(q, r, u, v, 2, 1), 0);
+  uint32_t qval = q[0] | ((uint32_t)q[1] << 16);
+  cr_assert_eq(qval, 3);
+  cr_assert_eq(r[0], 0);
+}
+
+Test(divmnu, null_remainder) {
+  /* passing NULL for r should work */
+  unsigned short u[1] = {7};
+  unsigned short v[1] = {3};
+  unsigned short q[1];
+  cr_assert_eq(divmnu(q, NULL, u, v, 1, 1), 0);
+  cr_assert_eq(q[0], 2);
+}
+
+Test(divmnu, quotient_times_divisor_plus_remainder_equals_dividend) {
+  struct { uint32_t u, v; } cases[] = {
+    {7,          3},
+    {100,        7},
+    {0x0000FFFF, 0x0000000F},
+    {0x00010000, 3},
+    {0x0002FFFD, 0x0000FFFF},
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    unsigned short ud[2], vd[1], q[2], r[2];
+    to_digits(ud, cases[i].u);
+    vd[0] = (unsigned short)cases[i].v;  /* all v fit in 1 digit here */
+    cr_assert_eq(divmnu(q, r, ud, vd, 2, 1), 0);
+    uint32_t qval = q[0] | ((uint32_t)q[1] << 16);
+    uint32_t rval = r[0];
+    cr_assert_eq(
+      qval * cases[i].v + rval,
+      cases[i].u,
+      "invariant failed for u=0x%08X v=0x%08X", cases[i].u, cases[i].v
+    );
+  }
+}
+
+Test(divmnu, agrees_with_builtin) {
+  uint32_t us[] = {1, 7, 100, 0xFFFF, 0x10000, 0x0002FFFD};
+  uint32_t vs[] = {1, 3, 7,   0xFF,   0xFFFF};  /* all single digit */
+  for (size_t i = 0; i < sizeof us / sizeof us[0]; i++) {
+    for (size_t j = 0; j < sizeof vs / sizeof vs[0]; j++) {
+      if (us[i] < vs[j]) continue;
+      unsigned short ud[2], vd[1], q[2], r[1];
+      to_digits(ud, us[i]);
+      vd[0] = (unsigned short)vs[j];
+      
+      cr_assert_eq(divmnu(q, r, ud, vd, 2, 1), 0);
+      
+      uint32_t qval = q[0] | ((uint32_t)q[1] << 16);
+      uint32_t rval = r[0];
+      
+      cr_assert_eq(
+        qval,
+        us[i] / vs[j],
+        "quotient wrong for u=0x%08X v=0x%08X", us[i], vs[j]
+      );
+      cr_assert_eq(
+        rval,
+        us[i] % vs[j],
+        "remainder wrong for u=0x%08X v=0x%08X", us[i], vs[j]
+      );
+    }
+  }
+}
