@@ -1,5 +1,6 @@
 #include <criterion/criterion.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 /*
                truncating   modulus    floor
@@ -279,6 +280,59 @@ Test(divmnu, agrees_with_builtin) {
         rval,
         us[i] % vs[j],
         "remainder wrong for u=0x%08X v=0x%08X", us[i], vs[j]
+      );
+    }
+  }
+}
+
+uint32_t divu32(uint64_t n, uint32_t d) {
+  if (n < (uint64_t)d) return 0;
+  else if (d == 1) return (uint32_t)n;
+  else if (d <= 1) return 1;
+  else return (uint32_t)(n / d);
+}
+
+Test(divu32, basic) {
+  cr_assert_eq(divu32(7,  3), 2);
+  cr_assert_eq(divu32(7,  7), 1);
+  cr_assert_eq(divu32(6,  3), 2);
+  cr_assert_eq(divu32(2,  3), 0);  /* n < d */
+  cr_assert_eq(divu32(7,  1), 7);  /* d == 1 path */
+}
+
+Test(divu32, high_dividend) {
+  /* verify by computing expected with uint64_t arithmetic */
+  uint64_t n1 = 0x000000FF00000000ULL;
+  uint32_t d1 = 0xFFFF;
+  cr_assert_eq(divu32(n1, d1), (uint32_t)(n1 / d1));
+  
+  uint64_t n2 = 0x00000000FFFFFFFEULL;
+  uint32_t d2 = 0xFFFF;
+  cr_assert_eq(divu32(n2, d2), (uint32_t)(n2 / d2));
+  
+  /* a case where high bits of n are nonzero and quotient fits in 32 bits */
+  uint64_t n3 = 0x0000000200000000ULL;  /* 2 * 2^32 */
+  uint32_t d3 = 0x00000003;
+  cr_assert_eq(divu32(n3, d3), (uint32_t)(n3 / d3));
+  
+  /* quotient exactly at 32-bit boundary */
+  uint64_t n4 = 0x00000001FFFFFFFEULL;
+  uint32_t d4 = 2;
+  cr_assert_eq(divu32(n4, d4), (uint32_t)(n4 / d4));
+}
+
+Test(divu32, agrees_with_builtin) {
+  uint64_t ns[] = {
+    1, 7, 100, 0xFFFF, 0x10000, 0x0002FFFD, 0x0000000100000000ULL, 0x00000000FFFFFFFFULL
+  };
+  uint32_t ds[] = {1, 3, 7, 0xFF, 0xFFFF, 0x80000000};
+  for (size_t i = 0; i < sizeof ns / sizeof ns[0]; i++) {
+    for (size_t j = 0; j < sizeof ds / sizeof ds[0]; j++) {
+      if (ns[i] < ds[j]) continue;
+      cr_assert_eq(
+        divu32(ns[i], ds[j]),
+        (uint32_t)(ns[i] / ds[j]),
+        "divu32(0x%016" PRIX64 ", 0x%08X)", ns[i], ds[j]
       );
     }
   }
