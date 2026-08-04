@@ -337,3 +337,130 @@ Test(divu32, agrees_with_builtin) {
     }
   }
 }
+
+u_int32_t divlu(u_int32_t x, u_int32_t y, u_int32_t z) {
+  /* divides (x || y) by z */
+  int32_t i;  u_int32_t t;
+  for (i = 1; i <= 32; i++) {
+    t = (int32_t)x >> 31;      /* All 1’s if x(31) = 1. */
+    x = (x << 1) | (y >> 31);  /* Shift x || y left */
+    y = y << 1;                /* one bit. */
+    if ((x | t) >= z) {  x = x - z;  y = y + 1;  }
+  }
+  return y; /* remainder is x */
+}
+
+Test(divlu, basic) {
+  cr_assert_eq(divlu(0, 7, 3), 2);
+  cr_assert_eq(divlu(0, 7, 7), 1);
+  cr_assert_eq(divlu(0, 6, 3), 2);
+  cr_assert_eq(divlu(0, 2, 3), 0);  /* n < d */
+  cr_assert_eq(divlu(0, 7, 1), 7);  /* d == 1 path */
+  
+  /* test with nonzero high word */
+  cr_assert_eq(divlu(1, 0, 3), (uint32_t)(((uint64_t)1 << 32) / (uint64_t)3));
+}
+
+Test(divlu, agrees_with_builtin) {
+  struct { uint32_t x, y, z; } cases[] = {
+    {0, 7,          3},
+    {0, 100,        7},
+    {0, 0xFFFFFFFF, 3},
+    {0, 0xFFFFFFFF, 0xFFFF},
+    {0, 0xFFFFFFFE, 0xFFFF},
+    {1, 0,          3},
+    {1, 0,          0xFFFFFFFF},
+    {2, 0,          3},
+    {0xFF, 0,       0xFFFF},
+    {0xFFFF, 0,     0xFFFF},
+    {1, 1,          3},
+    {0, 0xFFFFFFFF, 0x80000000},
+    {1, 0xFFFFFFFF, 0xFFFFFFFF},
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    uint32_t x = cases[i].x, y = cases[i].y, z = cases[i].z;
+    uint64_t n = ((uint64_t)x << 32) | y;
+
+    if (z == 0) continue;
+    if (n < (uint64_t)z) continue;
+    if (n / z > 0xFFFFFFFFULL) continue;  /* quotient overflows 32 bits */
+
+    uint32_t expected = (uint32_t)(n / z);
+    uint32_t got = divlu(x, y, z);
+    cr_assert_eq(
+      got, expected,
+      "divlu(0x%08X, 0x%08X, 0x%08X): got 0x%08X want 0x%08X", x, y, z, got, expected
+    );
+  }
+}
+
+
+Test(divlu, remainder_check) {
+  /*
+    remainder is left in x after the call we can verify with
+    quotient * z + remainder == n
+  */
+  struct { uint32_t x, y, z; } cases[] = {
+    {0, 7,  3},
+    {0, 7,  2},
+    {1, 0,  3},
+    {0xFF, 0x12345678, 0xFFFF},
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    uint32_t x = cases[i].x, y = cases[i].y, z = cases[i].z;
+    uint64_t n = ((uint64_t)x << 32) | y;
+    
+    if (n < z) continue;
+    
+    uint32_t q = divlu(x, y, z);
+    uint64_t rem = n % z;
+    cr_assert_eq(
+      (uint64_t)q * z + rem, n,
+        "invariant failed for (0x%08X||0x%08X)/0x%08X", x, y, z
+    );
+  }
+}
+
+Test(divlu, boundary_values) {
+  /* divisor = 1: quotient = full dividend */
+  cr_assert_eq(divlu(0, 0xFFFFFFFF, 1), 0xFFFFFFFF);
+  cr_assert_eq(divlu(0, 0,          1), 0);
+  
+  /* dividend just below divisor: quotient = 0 */
+  cr_assert_eq(divlu(0, 2, 3), 0);
+  
+  /* dividend == divisor: quotient = 1 */
+  cr_assert_eq(divlu(0, 0xFFFFFFFF, 0xFFFFFFFF), 1);
+  
+  /* power of 2 divisor */
+  cr_assert_eq(divlu(0, 0x80000000, 2), 0x40000000);
+  cr_assert_eq(divlu(0, 256, 16), 16);
+  
+  /* quotient exactly fills 32 bits */
+  cr_assert_eq(
+    divlu(1, 0xFFFFFFFE, 2),
+    (uint32_t)(((uint64_t)1 << 32 | 0xFFFFFFFE) / 2)
+  );
+}
+
+Test(divlu, high_word_patterns) {
+  uint32_t highs[] = { 0, 1, 2, 0xFF, 0xFFFF, 0x7FFFFFFF };
+  uint32_t divs[]  = { 3, 7, 0xFFFF, 0x80000001, 0xFFFFFFFF };
+  for (size_t i = 0; i < sizeof highs / sizeof highs[0]; i++) {
+    for (size_t j = 0; j < sizeof divs / sizeof divs[0]; j++) {
+      uint32_t x = highs[i], y = 0x12345678, z = divs[j];
+      uint64_t n = ((uint64_t)x << 32) | y;
+      
+      if (z == 0) continue;
+      if (n < (uint64_t)z) continue;
+      if (n / z > 0xFFFFFFFFULL) continue;  /* quotient overflows */
+      
+      uint32_t expected = (uint32_t)(n / z);
+      cr_assert_eq(
+        divlu(x, y, z),
+        expected,
+        "divlu(0x%08X, 0x%08X, 0x%08X)", x, y, z
+      );
+    }
+  }
+}
