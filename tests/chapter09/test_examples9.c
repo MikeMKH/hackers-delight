@@ -464,3 +464,126 @@ Test(divlu, high_word_patterns) {
     }
   }
 }
+
+#define DIVU(u, v) ((u) / (v))
+
+/*
+  Unsigned 64-bit division using two 32-bit DIVU instructions.
+  u and v are the dividend and divisor respectively
+ */
+unsigned long long udivdi3(unsigned long long u, unsigned long long v) {
+  unsigned long long u0, u1, v1, q0, q1, k, n;
+
+  if (v >> 32 == 0) {
+    /*
+      Divisor fits in 32 bits. Two sub-cases:
+       (a) quotient fits in 32 bits -- one division suffices.
+       (b) quotient overflows 32 bits -- split dividend into two halves
+        and perform two divisions, combining the partial quotients.
+     */
+    if (u >> 32 < v) {
+      /* Case (a): u/v fits in 32 bits, safe to divide directly. */
+      return DIVU(u, v) & 0xFFFFFFFF;
+    } else {
+      /*
+        Case (b): u/v would overflow a 32-bit result.
+        Split u into high and low 32-bit halves.
+        Compute q1 = high half / v, then use the remainder k
+        combined with the low half to compute q0 = low portion / v.
+        Final quotient is q1 concatenated with q0.
+      */
+      u1 = u >> 32;
+      u0 = u & 0xFFFFFFFF;
+      q1 = DIVU(u1, v) & 0xFFFFFFFF;
+      k  = u1 - q1 * v;
+      q0 = DIVU((k << 32) + u0, v) & 0xFFFFFFFF;
+      return (q1 << 32) + q0;
+    }
+  }
+
+  /*
+    Divisor >= 2^32. Use normalization to reduce to a 32-bit division:
+     1. Shift v left so its MSB is 1 (normalize), keeping only the top
+        32 bits as v1.
+     2. Halve u to prevent overflow in the subsequent division.
+     3. Divide the halved u by the normalized v1 to get an approximate
+        quotient q1, then adjust for the normalization and halving.
+     4. The result q0 may be off by one -- check and correct.
+   */
+  n  = __builtin_clzll(v);
+  v1 = (v << n) >> 32;
+  u1 = u >> 1;
+  q1 = DIVU(u1, v1) & 0xFFFFFFFF;
+  q0 = (q1 << n) >> 31;
+  if (q0 != 0) q0 = q0 - 1;
+  if ((u - q0 * v) >= v) q0 = q0 + 1;
+  return q0;
+}
+
+Test(udivdi3, agrees_with_builtin) {
+  unsigned long long cases[][2] = {
+    /* dividend,             divisor */
+    {7ULL,                   3ULL},
+    {100ULL,                 7ULL},
+    {0xFFFFFFFFULL,          3ULL},
+    {0x100000000ULL,         3ULL},     /* dividend > 2^32, divisor < 2^32 */
+    {0xFFFFFFFFFFFFFFFEULL,  3ULL},
+    {0xFFFFFFFFFFFFFFFEULL,  0xFFFFFFFFULL},
+    {0x100000000ULL,         0x100000000ULL},  /* divisor >= 2^32 */
+    {0xFFFFFFFFFFFFFFFEULL,  0x100000000ULL},
+    {0xFFFFFFFFFFFFFFFEULL,  0xFFFFFFFFFFFFFFFDULL},
+    {0x8000000000000000ULL,  0x7FFFFFFFULL},
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    unsigned long long u = cases[i][0], v = cases[i][1];
+    cr_assert_eq(
+      udivdi3(u, v),
+      u / v,
+      "udivdi3(0x%016llX, 0x%016llX): got 0x%016llX want 0x%016llX",
+        u, v, udivdi3(u, v), u / v
+    );
+  }
+}
+
+Test(udivdi3, small_divisor_no_overflow) {
+  /* v < 2^32 and quotient fits in 32 bits -- case (a) */
+  cr_assert_eq(udivdi3(7ULL, 3ULL),   2ULL);
+  cr_assert_eq(udivdi3(0ULL, 1ULL),   0ULL);
+  cr_assert_eq(udivdi3(1ULL, 1ULL),   1ULL);
+  cr_assert_eq(udivdi3(0xFFFFFFFFULL, 0xFFFFFFFFULL), 1ULL);
+}
+
+Test(udivdi3, small_divisor_with_overflow) {
+  /* v < 2^32 but quotient would overflow 32 bits -- case (b) */
+  cr_assert_eq(udivdi3(0x200000000ULL,  2ULL),       0x100000000ULL);
+  cr_assert_eq(udivdi3(0xFFFFFFFFFFFFFFFEULL, 2ULL), 0xFFFFFFFFFFFFFFFEULL / 2ULL);
+  cr_assert_eq(udivdi3(0x300000006ULL, 3ULL),        0x100000002ULL);
+}
+
+Test(udivdi3, large_divisor) {
+  /* v >= 2^32 -- exercises normalization path */
+  cr_assert_eq(
+    udivdi3(0x100000000ULL,  0x100000000ULL),
+    1ULL
+  );
+  cr_assert_eq(
+    udivdi3(0x200000000ULL, 0x100000000ULL),
+    2ULL
+  );
+  cr_assert_eq(
+    udivdi3(0xFFFFFFFFFFFFFFFEULL, 0x100000000ULL),
+    0xFFFFFFFFFFFFFFFEULL / 0x100000000ULL
+  );
+  cr_assert_eq(
+    udivdi3(0xFFFFFFFFFFFFFFFEULL, 0xFFFFFFFFFFFFFFFDULL),
+    1ULL
+  );
+}
+
+Test(udivdi3, boundary_values) {
+  cr_assert_eq(udivdi3(0ULL, 1ULL), 0ULL);
+  cr_assert_eq(udivdi3(1ULL, 1ULL), 1ULL);
+  cr_assert_eq(udivdi3(0xFFFFFFFFFFFFFFFFULL, 1ULL), 0xFFFFFFFFFFFFFFFFULL);
+  cr_assert_eq(udivdi3(0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL), 1ULL);
+  cr_assert_eq(udivdi3(0xFFFFFFFFFFFFFFFEULL, 0xFFFFFFFFFFFFFFFFULL), 0ULL);
+}
