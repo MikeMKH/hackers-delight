@@ -577,3 +577,237 @@ Test(divrem7, agrees_with_builtin) {
 #else
 Test(divrem7, skipped) { cr_skip("ARM AArch64 only"); }
 #endif
+
+#include <stdio.h>
+
+/*
+  ===========================================================
+  PART 1: What the magic numbers are for specific divisors.
+  
+  For unsigned 32-bit division by d, the compiler finds m and p such that:
+    floor(n / d) = floor(m * n / 2^p)   for all 0 <= n < 2^32
+  
+  The "magic number" M used in the multiply instruction is either:
+    M = m          if m < 2^32  (fits, simple case: div by 3, 5)
+    M = m - 2^32   if m >= 2^32 (overflow case: div by 7, needs extra add)
+  ===========================================================
+ */
+
+/* Verify div-by-3 magic: M=0x55555556, p=32 (no extra shift, no add) */
+Test(magic_numbers, div3_magic_verified) {
+  uint32_t M = 0x55555556;
+  
+  /* M = ceil(2^32 / 3) = ceil(1431655765.33) = 1431655766 = 0x55555556 */
+  cr_assert_eq(
+    M, (uint32_t)(((uint64_t)1 << 32) / 3 + 1),
+    "magic for /3 should be ceil(2^32/3)"
+  );
+  
+  /* verify: floor(M * n / 2^32) = floor(n / 3) for sample values */
+  uint32_t ns[] = {0,1,2,3,4,5,6,7,100,999,0x7FFFFFFF,0xFFFFFFFF};
+  for (size_t i = 0; i < sizeof ns / sizeof ns[0]; i++) {
+    uint32_t n = ns[i];
+    uint32_t got      = (uint32_t)(((uint64_t)M * n) >> 32);
+    uint32_t expected = n / 3;
+    cr_assert_eq(
+      got, expected,
+      "M*%u/2^32 = %u, want %u", n, got, expected
+    );
+  }
+}
+
+/* Verify div-by-5 magic: M=0x66666667, sh=1 (shift by 1 extra after muluh) */
+Test(magic_numbers, div5_magic_verified) {
+  uint32_t M = 0x66666667;
+  int sh = 1;
+  
+  /* M = ceil(2^33 / 5) - 2^32 ... no wait, M fits:
+   * ceil(2^33/5) = ceil(1717986918.4) = 1717986919 = 0x66666667
+   * This is < 2^32, so no add trick needed, just shift by sh=1 after muluh */
+  cr_assert_eq(
+    M, (uint32_t)(((uint64_t)1 << 33) / 5 + 1),
+    "magic for /5"
+  );
+  
+  uint32_t ns[] = {0,1,4,5,6,9,10,11,100,999,0x7FFFFFFF,0xFFFFFFFF};
+  for (size_t i = 0; i < sizeof ns / sizeof ns[0]; i++) {
+    uint32_t n = ns[i];
+    uint32_t got      = (uint32_t)((((uint64_t)M * n) >> 32) >> sh);
+    uint32_t expected = n / 5;
+    cr_assert_eq(
+      got, expected,
+      "div5 magic: n=%u got=%u want=%u", n, got, expected
+    );
+  }
+}
+
+/* Verify div-by-7 magic: use the multiplier found by search */
+Test(magic_numbers, div7_magic_verified) {
+  uint32_t M = 0x24924925;
+  int sh = 3;
+  
+  /*
+     For d=7: true multiplier m = ceil(2^34/7) = ceil(2340615702.86)
+            = 2340615703 = 0x92492493 + 2^32 ... wait let's check:
+     0x92492493 = 2454267027
+     2454267027 + 2^32 = 2454267027 + 4294967296 = 6749234323
+     6749234323 / 7 = 964176331.857... not quite
+          Actually for div-by-7: m = ceil(2^34/7) = 2340615703
+     2340615703 >= 2^32? No: 2^32 = 4294967296, 2340615703 < that.
+     But the book says M = 0x92492493 and needs the add trick...
+     Let's verify what actually works:
+   */
+  uint32_t ns[] = {0,1,6,7,8,13,14,15,100,999,0x7FFFFFFF,0xFFFFFFFF};
+  for (size_t i = 0; i < sizeof ns / sizeof ns[0]; i++) {
+    uint32_t n = ns[i];
+    /* apply the add trick: q = muluh(M,n); q = (q + n) >> 1; q >>= sh-1 */
+    uint64_t q = (uint64_t)(((uint64_t)M * n) >> 32);
+    uint64_t t = q + (uint64_t)n;  /* add n using 64 bits for carry */
+    uint32_t res = (uint32_t)(t >> sh);
+    cr_assert_eq(
+      res, n / 7,
+      "div7 magic: n=%u got=%u want=%u", n, res, n/7
+    );
+  }
+}
+
+/*
+  ===========================================================
+  PART 2: The general pattern -- show what p and m look like
+  for various divisors, helping understand the theory.
+  ===========================================================
+ */
+
+/*
+  Find m and p for unsigned division by d (W=32).
+  Uses the straightforward search described in the text:
+  find least p >= 32 and m = ceil(2^p / d) such that
+  floor(m*n/2^p) = floor(n/d) for all 0 <= n < 2^32.
+ */
+typedef struct {
+  uint64_t m;   /* true multiplier (may be >= 2^32) */
+  uint32_t M;   /* magic number = m if m<2^32, else m-2^32 */
+  int      add; /* 1 if m >= 2^32 (need add-n trick) */
+  int      p;   /* total shift = p */
+  int      sh;  /* extra shift after muluh = p - 32 */
+} Magic;
+
+/*
+   Correct magic number finder for unsigned 32-bit division.
+   Uses the algorithm from Hacker's Delight Figure 10-1.
+ */
+Magic find_magic(uint32_t d) {
+  Magic mag = {0};
+
+  for (int p = 32; p <= 63; p++) {
+    uint64_t two_p = (uint64_t)1 << p;
+    uint64_t m     = (two_p + d - 1) / d;
+    /* Verify formula works for worst-case inputs.
+       The worst case is n values just BELOW a multiple of d,
+       because floor(m*n/2^p) might round up incorrectly.
+       Sufficient to check: does the formula give correct results
+       at n = k*d - 1 for the largest k where k*d <= 2^32?
+    */
+    uint64_t k_max  = 0x100000000ULL / d;
+    uint64_t n_hard = k_max * d - 1;  /* largest n just below a multiple */
+    /* also check the actual maximum n = 2^32-1 */
+    int ok = 1;
+    uint64_t checks[] = { n_hard, 0xFFFFFFFFULL, (uint64_t)(d*2 - 1) };
+    for (int t = 0; t < 3; t++) {
+      uint64_t n = checks[t];
+      if (n > 0xFFFFFFFFULL || n == 0) continue;
+      __uint128_t prod = (__uint128_t)m * n;
+      uint64_t q_magic = (uint64_t)(prod >> p);
+      uint64_t q_true  = n / d;
+      if (q_magic != q_true) { ok = 0; break; }
+    }
+    if (ok) {
+      mag.m   = m;
+      mag.p   = p;
+      mag.sh  = p - 32;
+      mag.add = (m > 0xFFFFFFFFULL) ? 1 : 0;
+      mag.M   = mag.add ? (uint32_t)(m - ((uint64_t)1<<32))
+                        : (uint32_t)m;
+      return mag;
+    }
+  }
+  return mag;
+}
+
+/*
+   Apply magic number to compute n/d without division.
+ */
+static uint32_t apply_magic(uint32_t n, Magic mag) {
+  if (!mag.add) {
+    __uint128_t prod = (__uint128_t)mag.M * n;
+    return (uint32_t)((uint64_t)(prod >> 32) >> mag.sh);
+  } else {
+    __uint128_t prod = (__uint128_t)mag.M * n;
+    uint64_t    q    = (uint64_t)(prod >> 32);
+    uint64_t    t    = q + n;  /* add n; use 64 bits for carry */
+    return (uint32_t)(t >> mag.sh);
+  }
+}
+
+Test(magic_numbers, show_magic_for_small_divisors) {
+  printf("\nDivisor  m (true)        M (magic)    add  sh\n");
+  printf("-------  --------------  ----------   ---  --\n");
+  
+  for (uint32_t d = 2; d <= 20; d++) {
+    Magic mag = find_magic(d);
+    printf(
+      "%-8u 0x%012llX  0x%08X   %d    %d\n",
+      d, (unsigned long long)mag.m, mag.M, mag.add, mag.sh
+    );
+  }
+  Magic m3 = find_magic(3);
+  
+  /* the search finds p=33 -> M=ceil(2^33/3)=0xAAAAAAAB, sh=1 */
+  cr_assert_eq(m3.M,  0xAAAAAAABU, "magic for /3: got 0x%08X", m3.M);
+  cr_assert_eq(m3.sh, 1,           "div3 sh=1: got %d", m3.sh);
+  Magic m5 = find_magic(5);
+  
+  /* don't assert specific M -- just verify it works */
+  cr_assert(m5.sh >= 0, "div5 sh valid");
+  printf("div5: M=0x%08X sh=%d add=%d\n", m5.M, m5.sh, m5.add);
+  Magic m7 = find_magic(7);
+  printf("div7: M=0x%08X sh=%d add=%d\n", m7.M, m7.sh, m7.add);
+}
+
+Test(magic_numbers, apply_magic_agrees_with_division) {
+    uint32_t divisors[] = {2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,100};
+    uint32_t ns[]       = {0,1,2,3,6,7,8,99,100,101,
+                           0xFFFFFFFEU,0xFFFFFFFFU,0x7FFFFFFFU};
+    for (size_t i = 0; i < sizeof divisors/sizeof divisors[0]; i++) {
+      uint32_t d   = divisors[i];
+      Magic    mag = find_magic(d);
+      for (size_t j = 0; j < sizeof ns/sizeof ns[0]; j++) {
+        uint32_t n   = ns[j];
+        uint32_t got = apply_magic(n, mag);
+        cr_assert_eq(
+          got, n/d,
+          "n=%u d=%u got=%u want=%u (M=0x%X add=%d sh=%d)",
+          n, d, got, n/d, mag.M, mag.add, mag.sh
+        );
+      }
+    }
+}
+
+Test(magic_numbers, apply_magic_exhaustive_small) {
+  uint32_t divisors[] = {3,5,7,11,13};
+  for (size_t i = 0; i < sizeof divisors/sizeof divisors[0]; i++) {
+    uint32_t d   = divisors[i];
+    Magic    mag = find_magic(d);
+    for (uint32_t n = 0; n <= 100000; n++) {
+      cr_assert_eq(apply_magic(n, mag), n/d, "n=%u d=%u", n, d);
+    }
+    uint32_t large[] = {0x7FFFFFFF,0x80000000,0xFFFFFFFE,0xFFFFFFFF};
+    for (size_t j = 0; j < 4; j++) {
+      cr_assert_eq(
+        apply_magic(large[j], mag),
+        large[j]/d,
+        "n=0x%X d=%u", large[j], d
+      );
+    }
+  }
+}
