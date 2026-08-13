@@ -811,3 +811,123 @@ Test(magic_numbers, apply_magic_exhaustive_small) {
     }
   }
 }
+
+#if defined(__aarch64__)
+
+/*
+  Division by -7 using the instruction sequence from Hacker's Delight section 10-5.
+
+  li    M, 0x6DB6DB6D -- load magic number, -(2**34+5)/7 + 2**32
+  mulhs q, M, n       -- q = floor(M*n/2**32)
+  sub   q, q, n       -- q = floor(M*n/2**32) - n
+  shrsi q, q, 2       -- q = floor(q/4) 
+  shri  t, q, 31      -- add 1 to q if
+  add   q, q, t       -- q is negative
+  muli  t, q,-7       -- compute remainder from
+  sub   r, n, t       -- r = n - q*7
+ */
+static void divremneg7_asm(int32_t n, int32_t *q_out, int32_t *r_out) {
+  int32_t q, r;
+  __asm__ volatile (
+    /* M = 0x6DB6DB6D -- magic number for division by -7 */
+    "mov   w2, #0xDB6D            \n"
+    "movk  w2, #0x6DB6, lsl #16   \n"  
+    /* q = mulhs(M, n) -- signed multiply, take high 32 bits */
+    "smull x3, w2, %w[n]          \n"  /* x3 = M * n (64-bit signed) */
+    "asr   x3, x3, #32            \n"  /* x3 = high 32 bits          */
+    /* sub q, q, n -- q = floor(M*n/2**32) - n */
+    "sub   w3, w3, %w[n]          \n"
+    /* shrsi q, q, 2  */
+    "asr   w3, w3, #2             \n"  /* q = q >> 2 */
+    /* t = q >> 31 -- 1 if n negative, else 0 */
+    "lsr   w4, w3, #31            \n"
+    /* q = q + t -- adjust for negative n */
+    "add   w3, w3, w4             \n" 
+    /* t = q * -7 -- compute q*(-7) using shift and subtract */
+    "sub   w4, w3, w3, lsl #3     \n"  /* w4 = q - q*8 = -7q */
+    /* r = n - t */
+    "sub   %w[r], %w[n], w4       \n"
+    "mov   %w[q], w3              \n"
+    : [q] "=r" (q),
+      [r] "=r" (r)
+    : [n] "r"  (n)
+    : "w2", "w3", "w4", "x3"
+  );
+  *q_out = q;
+  *r_out = r;
+}
+
+static void check_divremneg7(int32_t n) {
+  int32_t q, r;
+  divremneg7_asm(n, &q, &r);
+  cr_assert_eq(
+    q,
+    n / -7,
+    "quotient wrong: divremneg7(%d) got q=%d want %d", n, q, n / -7
+  );
+  cr_assert_eq(
+    r,
+    n % -7,
+    "remainder wrong: divremneg7(%d) got r=%d want %d", n, r, n % -7
+  );
+  cr_assert_eq(
+    q * -7 + r,
+    n,
+    "invariant q*(-7)+r==n failed for n=%d", n
+  );
+}
+
+Test(divremneg7_asm, basic_positive) {
+  check_divremneg7(0);
+  check_divremneg7(1);
+  check_divremneg7(2);
+  check_divremneg7(3);
+  check_divremneg7(4);
+  check_divremneg7(5);
+  check_divremneg7(6);
+  check_divremneg7(7);
+  check_divremneg7(100);
+}
+
+Test(divremneg7_asm, basic_negative) {
+  check_divremneg7(-1);
+  check_divremneg7(-2);
+  check_divremneg7(-3);
+  check_divremneg7(-4);
+  check_divremneg7(-5);
+  check_divremneg7(-6);
+  check_divremneg7(-7);
+  check_divremneg7(-100);
+}
+
+Test(divremneg7_asm, boundary_values) {
+  check_divremneg7(0x7FFFFFFF);   /* INT_MAX */
+  check_divremneg7(0x7FFFFFFE);
+  check_divremneg7(0x7FFFFFFD);
+  check_divremneg7((int32_t)0x80000000);  /* INT_MIN */
+  check_divremneg7((int32_t)0x80000001);
+  check_divremneg7((int32_t)0x80000002);
+}
+
+Test(divremneg7_asm, multiples_of_7) {
+  /* remainder must be zero for exact multiples */
+  int32_t cases[] = { 7, 14, 21, 28, -7, -14, -21, -28, 300, -300, 0x7FFFFFFE };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    if (cases[i] % 7 != 0) continue;
+    int32_t q, r;
+    divremneg7_asm(cases[i], &q, &r);
+    cr_assert_eq(
+      r, 0,
+      "remainder nonzero for multiple of 7: n=%d r=%d", cases[i], r
+    );
+  }
+}
+
+Test(divremneg7_asm, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (int32_t n = -10000; n <= 10000; n++) { check_divremneg7(n); }
+}
+
+#else
+Test(divremneg7_asm, skipped) { cr_skip("ARM AArch64 only"); }
+#endif
