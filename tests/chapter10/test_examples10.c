@@ -931,3 +931,64 @@ Test(divremneg7_asm, agrees_with_builtin) {
 #else
 Test(divremneg7_asm, skipped) { cr_skip("ARM AArch64 only"); }
 #endif
+
+struct ms {
+  int M; // magic number
+  int s; // shift amount
+};
+
+struct ms magic(int d) {// Must have 2 <= d <= 2**31-1
+  // or -2**31 <= d <= -2.
+  int p;
+  unsigned ad, anc, delta, q1, r1, q2, r2, t;
+  const unsigned two31 = 0x80000000;// 2**31.
+  struct ms mag;
+  
+  ad = abs(d);
+  t = two31 + ((unsigned)d >> 31);
+  anc = t - 1 - t%ad;// Absolute value of nc.
+  p = 31;// Init. p.
+  q1 = two31/anc;// Init. q1 = 2**p/|nc|.
+  r1 = two31 - q1*anc;// Init. r1 = rem(2**p, |nc|).
+  q2 = two31/ad;// Init. q2 = 2**p/|d|.
+  r2 = two31 - q2*ad;// Init. r2 = rem(2**p, |d|).
+  do {
+    p = p + 1;
+    q1 = 2*q1;// Update q1 = 2**p/|nc|.
+    r1 = 2*r1;// Update r1 = rem(2**p, |nc|).
+    if (r1 >= anc) {// (Must be an unsigned
+      q1 = q1 + 1;// comparison here.)
+      r1 = r1 - anc;
+    }
+    q2 = 2*q2;// Update q2 = 2**p/|d|.
+    r2 = 2*r2;// Update r2 = rem(2**p, |d|).
+    if (r2 >= ad) {// (Must be an unsigned
+      q2 = q2 + 1;// comparison here.)
+      r2 = r2 - ad;
+    }
+    delta = ad - r2;
+  } while (q1 < delta || (q1 == delta && r1 == 0));
+  
+  mag.M = q2 + 1;
+  if (d < 0) mag.M = -mag.M;// Magic number and
+  mag.s = p - 32;// shift amount to return.
+  return mag;
+}
+
+Test(magic, magic_for_div_3) {
+  struct ms m = magic(3);
+  cr_assert_eq(m.M, 0x55555556, "divide by 3 magic: want 0x55555556, got 0x%X", m.M);
+  cr_assert_eq(m.s, 0,          "divide by 3 shift: want 0, got %d", m.s);
+}
+
+Test(magic, magic_for_div_5) {
+  struct ms m = magic(5);
+  cr_assert_eq(m.M, 0x66666667, "divide by 5 magic: want 0x66666667, got 0x%X", m.M);
+  cr_assert_eq(m.s, 1,          "divide by 5 shift: want 1, got %d", m.s);
+}
+
+Test(magic, magic_for_div_neg7) {
+  struct ms m = magic(-7);
+  cr_assert_eq(m.M, 0x6DB6DB6D, "divide by -7 magic: want 0x6DB6DB6D, got 0x%X", m.M);
+  cr_assert_eq(m.s, 2,          "divide by -7 shift: want 2, got %d", m.s);
+}
