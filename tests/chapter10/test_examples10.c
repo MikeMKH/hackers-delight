@@ -992,3 +992,211 @@ Test(magic, magic_for_div_neg7) {
   cr_assert_eq(m.M, 0x6DB6DB6D, "divide by -7 magic: want 0x6DB6DB6D, got 0x%X", m.M);
   cr_assert_eq(m.s, 2,          "divide by -7 shift: want 2, got %d", m.s);
 }
+
+#if defined(__aarch64__)
+
+/*
+  Division by 3 using the instruction sequence from Hacker's Delight section 10-8.
+  
+  li    M, 0xAAAAAAAB -- load magic number, (2**33+1)/3
+  mulhs q, M, n       -- q = floor(M*n/2**32)
+  shrsi q, q, 1       
+  muli  t, q, 3       -- compute remainder from
+  sub   r, n, t       -- r = n - q*3
+ */
+static void udivrem3_asm(uint32_t n, uint32_t *q_out, uint32_t *r_out) {
+  uint32_t q, r;
+  __asm__ volatile (
+    /* M = 0xAAAAAAAB -- magic number for division by 3 */
+    "mov   w2, #0xAAAB            \n"
+    "movk  w2, #0xAAAA, lsl #16   \n"
+    /* q = mulhu(M, n) -- unsigned multiply, take high 32 bits */
+    "umull x3, w2, %w[n]          \n"  /* x3 = M * n (64-bit unsigned) */
+    "lsr   x3, x3, #32            \n"  /* x3 = high 32 bits            */
+    /* shrsi q, q, 1 */
+    "lsr   w3, w3, #1             \n"  /* q = q >> 1 */
+    /* t = q * 3 -- compute q*3 using shift and add */
+    "add   w4, w3, w3, lsl #1     \n"  /* w4 = q + q*2 = q*3 */
+    /* r = n - t */
+    "sub   %w[r], %w[n], w4       \n"
+    "mov   %w[q], w3              \n"
+    : [q] "=r" (q),
+      [r] "=r" (r)
+    : [n] "r"  (n)
+    : "w2", "w3", "w4", "x3"
+  );
+  *q_out = q;
+  *r_out = r;
+}
+
+static void check_udivrem3(uint32_t n) {
+  uint32_t q, r;
+  udivrem3_asm(n, &q, &r);
+  cr_assert_eq(
+    q,
+    n / 3,
+    "quotient wrong: udivrem3(%d) got q=%d want %d", n, q, n / 3
+  );
+  cr_assert_eq(
+    r,
+    n % 3,
+    "remainder wrong: udivrem3(%d) got r=%d want %d", n, r, n % 3
+  );
+  cr_assert_eq(
+    q * 3 + r,
+    n,
+    "invariant q*3+r==n failed for n=%d", n
+  );
+}
+
+Test(udivrem3_asm, basic_positive) {
+  check_udivrem3(0);
+  check_udivrem3(1);
+  check_udivrem3(2);
+  check_udivrem3(3);
+  check_udivrem3(4);
+  check_udivrem3(5);
+  check_udivrem3(6);
+  check_udivrem3(7);
+  check_udivrem3(100);
+}
+
+Test(udivrem3_asm, boundary_values) {
+  check_udivrem3(0xFFFFFFFF);   /* INT_MAX */
+  check_udivrem3(0xFFFFFFFE);
+  check_udivrem3(0xFFFFFFFD);
+  check_udivrem3(0x00000000);  /* INT_MIN */
+  check_udivrem3(0x00000001);
+  check_udivrem3(0x00000002);
+}
+
+Test(udivrem3_asm, multiples_of_3) {
+  /* remainder must be zero for exact multiples */
+  uint32_t cases[] = { 3, 6, 9, 12, 300, 3000, 0xFFFFFFFC };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    if (cases[i] % 3 != 0) continue;
+    uint32_t q, r;
+    udivrem3_asm(cases[i], &q, &r);
+    cr_assert_eq(
+      r, 0,
+      "remainder nonzero for multiple of 3: n=%d r=%d", cases[i], r
+    );
+  }
+}
+
+Test(udivrem3_asm, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (uint32_t n = 0; n <= 10000; n++) { check_udivrem3(n); }
+}
+
+#else
+Test(udivrem3_asm, skipped) { cr_skip("ARM AArch64 only"); }
+#endif
+
+#if defined(__aarch64__)
+
+/*
+  Division by 7 using the instruction sequence from Hacker's Delight section 10-8.
+
+  li    M, 0x24924925 -- load magic number, (2**35+3)/7 - 2**32
+  mulhs q, M, n       -- q = floor(M*n/2**32)
+  add   q, q, n       -- add n to q (may overflow)
+  shrxi q, q, 3       -- shift right with carry bit
+  muli  t, q, 7       -- compute remainder from
+  sub   r, n, t       -- r = n - q*7
+ */
+static void udivrem7_asm(uint32_t n, uint32_t *q_out, uint32_t *r_out) {
+  uint32_t q, r;
+  __asm__ volatile (
+    /* M = 0x24924925 -- magic number for division by 7 */
+    "mov   w2, #0x4925             \n"
+    "movk  w2, #0x2492, lsl #16    \n"
+    /* q = mulhu(M, n) -- unsigned multiply, take high 32 bits */
+    "umull x3, w2, %w[n]          \n"  /* x3 = M * n (64-bit unsigned) */
+    "lsr   x3, x3, #32            \n"  /* x3 = high 32 bits            */
+    /* add q, q, n -- add n to q (may overflow) */
+    "adds  w3, w3, %w[n]          \n"
+    /* save the carry from q+n before the following shift */
+    "cset  w5, cs                 \n"
+    /* shrxi q, q, 3 -- shift right with carry bit */
+    "lsr   w3, w3, #3             \n"  /* q = q >> 3 */
+    "lsl   w5, w5, #29            \n"  /* carry contributes at bit 29 after >>3 */
+    "add   w3, w3, w5             \n"  /* add back the shifted overflow carry */
+    /* t = q * 7 -- compute q*7 using shift and add */
+    "lsl   w4, w3, #3             \n"  /* w4 = q * 8   */
+    "sub   w4, w4, w3             \n"  /* w4 = q*8 - q = q*7 */
+    /* r = n - t */
+    "sub   %w[r], %w[n], w4       \n"
+    "mov   %w[q], w3              \n"
+    : [q] "=r" (q),
+      [r] "=r" (r)
+    : [n] "r"  (n)
+    : "w2", "w3", "w4", "w5", "x3", "cc"
+  );
+  *q_out = q;
+  *r_out = r;
+}
+
+static void check_udivrem7(uint32_t n) {
+  uint32_t q, r;
+  udivrem7_asm(n, &q, &r);
+  cr_assert_eq(
+    q,
+    n / 7,
+    "quotient wrong: udivrem7(%d) got q=%d want %d", n, q, n / 7
+  );
+  cr_assert_eq(
+    r,
+    n % 7,
+    "remainder wrong: udivrem7(%d) got r=%d want %d", n, r, n % 7
+  );
+  cr_assert_eq(
+    q * 7 + r,
+    n,
+    "invariant q*7+r==n failed for n=%d", n
+  );
+}
+
+Test(udivrem7_asm, basic_positive) {
+  check_udivrem7(0);
+  check_udivrem7(1);
+  check_udivrem7(2);
+  check_udivrem7(3);
+  check_udivrem7(4);
+  check_udivrem7(5);
+  check_udivrem7(6);
+  check_udivrem7(7);
+  check_udivrem7(100);
+}
+
+Test(udivrem7_asm, boundary_values) {
+  check_udivrem7(0xFFFFFFFF);   /* INT_MAX */
+  check_udivrem7(0xFFFFFFFE);
+  check_udivrem7(0xFFFFFFFD);
+  check_udivrem7(0x00000000);  /* INT_MIN */
+  check_udivrem7(0x00000001);
+  check_udivrem7(0x00000002);
+}
+
+Test(udivrem7_asm, multiples_of_7) {
+  /* remainder must be zero for exact multiples */
+  uint32_t cases[] = { 7, 14, 21, 28, 700, 7000, 0xFFFFFFF8 };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    if (cases[i] % 7 != 0) continue;
+    uint32_t q, r;
+    udivrem7_asm(cases[i], &q, &r);
+    cr_assert_eq(
+      r, 0,
+      "remainder nonzero for multiple of 7: n=%d r=%d", cases[i], r
+    );
+  }
+}
+
+Test(udivrem7_asm, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (uint32_t n = 0; n <= 10000; n++) { check_udivrem7(n); }
+}
+
+#else
+Test(udivrem7_asm, skipped) { cr_skip("ARM AArch64 only"); }
+#endif
