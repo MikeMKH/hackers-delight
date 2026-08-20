@@ -1200,3 +1200,205 @@ Test(udivrem7_asm, agrees_with_builtin) {
 #else
 Test(udivrem7_asm, skipped) { cr_skip("ARM AArch64 only"); }
 #endif
+
+struct mu {
+  unsigned M; // Magic number,
+  int a;      // “add” indicator,
+  int s;      // and shift amount.
+};
+
+struct mu magicu(unsigned d) {
+  // Must have 1 <= d <= 2**32-1.
+  int p, gt = 0;
+  unsigned nc, delta, q1, r1, q2, r2;
+  struct mu magu;
+  
+  magu.a = 0;              // Initialize “add” indicator.
+  nc = -1 - (-d)%d;        // Unsigned arithmetic here.
+  p = 31;                  // Init. p.
+  q1 = 0x80000000/nc;      // Init. q1 = 2**p/nc.
+  r1 = 0x80000000 - q1*nc; // Init. r1 = rem(2**p, nc).
+  q2 = 0x7FFFFFFF/d;       // Init. q2 = (2**p - 1)/d.
+  r2 = 0x7FFFFFFF - q2*d;  // Init. r2 = rem(2**p - 1, d).
+  
+  do {
+    p = p + 1;
+    if (q1 >= 0x80000000) gt = 1; // Means q1 > delta.
+    
+    if (r1 >= nc - r1) {
+      q1 = 2*q1 + 1;  // Update q1.
+      r1 = 2*r1 - nc; // Update r1.
+    }
+    else {
+      q1 = 2*q1;
+      r1 = 2*r1;
+    }
+    
+    if (r2 + 1 >= d - r2) {
+      if (q2 >= 0x7FFFFFFF) magu.a = 1;
+      q2 = 2*q2 + 1;     // Update q2.
+      r2 = 2*r2 + 1 - d; // Update r2.
+    }
+    else {
+      if (q2 >= 0x80000000) magu.a = 1;
+      q2 = 2*q2;
+      r2 = 2*r2 + 1;
+    }
+    
+    delta = d - 1 - r2;
+  } while (gt == 0 &&  (q1 < delta || (q1 == delta && r1 == 0))); 
+  
+  magu.M = q2 + 1; // Magic number
+  magu.s = p - 32; // and shift amount to return
+  return magu;     // (magu.a was set above).
+}
+
+/* Apply the magic number to compute n/d without division */
+static uint32_t apply_magicu(uint32_t n, struct mu mag) {
+  uint32_t q;
+  if (!mag.a) {
+    /* simple case: q = muluh(M, n) >> s */
+    q = (uint32_t)(((uint64_t)mag.M * n) >> 32);
+    return q >> mag.s;
+  } else {
+    /* add-n case: true m = M + 2^32 */
+    uint32_t t = (uint32_t)(((uint64_t)mag.M * n) >> 32);
+    uint32_t sum = t + n;
+    /* handle carry from t + n using 64-bit */
+    uint64_t full = ((uint64_t)(sum < t ? 1 : 0) << 32) | sum;
+    return (uint32_t)(full >> mag.s);
+  }
+}
+
+Test(magicu, known_magic_numbers) {
+  /* verify the book's known magic numbers for specific divisors */
+  struct mu m3 = magicu(3);
+  printf("d=3:  M=0x%08X a=%d s=%d\n", m3.M, m3.a, m3.s);
+  cr_assert_eq(m3.M, 0xAAAAAAABU, "magic for /3: got 0x%08X", m3.M);
+  cr_assert_eq(m3.a, 0,           "div3 no add");
+  cr_assert_eq(m3.s, 1,           "div3 s=1");
+  
+  struct mu m5 = magicu(5);
+  printf("d=5:  M=0x%08X a=%d s=%d\n", m5.M, m5.a, m5.s);
+  cr_assert_eq(m5.M, 0xCCCCCCCDU, "magic for /5: got 0x%08X", m5.M);
+  cr_assert_eq(m5.a, 0,           "div5 no add");
+  cr_assert_eq(m5.s, 2,           "div5 s=2");
+  
+  struct mu m7 = magicu(7);
+  printf("d=7:  M=0x%08X a=%d s=%d\n", m7.M, m7.a, m7.s);
+  cr_assert_eq(m7.M, 0x24924925U, "magic for /7: got 0x%08X", m7.M);
+  cr_assert_eq(m7.a, 1,           "div7 needs add");
+  cr_assert_eq(m7.s, 3,           "div7 s=3");
+}
+
+Test(magicu, edge_case_divisors) {
+  /* d=1: every n/1 = n */
+  struct mu m1 = magicu(1);
+  printf("d=1:  M=0x%08X a=%d s=%d\n", m1.M, m1.a, m1.s);
+  cr_assert_eq(apply_magicu(0,          m1), 0U);
+  cr_assert_eq(apply_magicu(1,          m1), 1U);
+  cr_assert_eq(apply_magicu(0xFFFFFFFF, m1), 0xFFFFFFFFU);
+
+  /* d=2: power of 2 */
+  struct mu m2 = magicu(2);
+  printf("d=2:  M=0x%08X a=%d s=%d\n", m2.M, m2.a, m2.s);
+  cr_assert_eq(apply_magicu(0,          m2), 0U);
+  cr_assert_eq(apply_magicu(1,          m2), 0U);
+  cr_assert_eq(apply_magicu(2,          m2), 1U);
+  cr_assert_eq(apply_magicu(0xFFFFFFFF, m2), 0x7FFFFFFFU);
+
+  /* d=2^32-1: largest possible divisor */
+  struct mu mmax = magicu(0xFFFFFFFF);
+  printf("d=max: M=0x%08X a=%d s=%d\n", mmax.M, mmax.a, mmax.s);
+  cr_assert_eq(apply_magicu(0,          mmax), 0U);
+  cr_assert_eq(apply_magicu(0xFFFFFFFF, mmax), 1U);
+  cr_assert_eq(apply_magicu(0xFFFFFFFE, mmax), 0U);
+}
+
+Test(magicu, show_table_for_small_divisors) {
+  printf("\nDivisor  M (magic)    add  sh\n");
+  printf("-------  ----------   ---  --\n");
+  for (uint32_t d = 1; d <= 20; d++) {
+    struct mu mag = magicu(d);
+    printf("%-8u 0x%08X   %d    %d\n", d, mag.M, mag.a, mag.s);
+  }
+  /* powers of 2 should never need the add trick */
+  for (int k = 1; k <= 31; k++) {
+    uint32_t  d   = 1u << k;
+    struct mu mag = magicu(d);
+    cr_assert_eq(mag.a, 0, "power of 2 d=%u should not need add", d);
+  }
+}
+
+Test(magicu, apply_agrees_with_division) {
+  uint32_t divisors[] = {
+    1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,100,
+    0x7FFFFFFF, 0x80000000, 0xFFFFFFFE, 0xFFFFFFFF
+  };
+  uint32_t ns[] = {
+    0,1,2,3,6,7,8,99,100,101,
+    0x7FFFFFFFU, 0x80000000U,0xFFFFFFFEU, 0xFFFFFFFFU
+  };
+
+  for (size_t i = 0; i < sizeof divisors / sizeof divisors[0]; i++) {
+    uint32_t  d   = divisors[i];
+    struct mu mag = magicu(d);
+    for (size_t j = 0; j < sizeof ns / sizeof ns[0]; j++) {
+      uint32_t n   = ns[j];
+      uint32_t got = apply_magicu(n, mag);
+      cr_assert_eq(
+        got, n / d,
+        "n=%u d=%u got=%u want=%u (M=0x%X a=%d s=%d)",
+        n, d, got, n/d, mag.M, mag.a, mag.s
+      );
+    }
+  }
+}
+
+Test(magicu, exhaustive_small_divisors) {
+  uint32_t divisors[] = {3, 5, 7, 11, 13, 100};
+  for (size_t i = 0; i < sizeof divisors / sizeof divisors[0]; i++) {
+    uint32_t  d   = divisors[i];
+    struct mu mag = magicu(d);
+    for (uint32_t n = 0; n <= 100000; n++) {
+      cr_assert_eq(
+        apply_magicu(n, mag), n / d,
+        "n=%u d=%u (M=0x%X a=%d s=%d)",
+        n, d, mag.M, mag.a, mag.s
+      );
+    }
+    /* spot check large values */
+    uint32_t large[] = {0x7FFFFFFF, 0x80000000, 0xFFFFFFFE, 0xFFFFFFFF};
+    for (size_t j = 0; j < 4; j++) {
+      cr_assert_eq(apply_magicu(
+        large[j], mag), large[j] / d,
+        "n=0x%X d=%u", large[j],
+        d
+      );
+    }
+  }
+}
+
+Test(magicu, invariant_quotient_times_d_plus_remainder) {
+  uint32_t divisors[] = {3, 5, 7, 11, 100, 0xFFFF};
+  uint32_t ns[]       = {0,1,6,7,8,99,100,0x7FFFFFFF,0xFFFFFFFF};
+  for (size_t i = 0; i < sizeof divisors / sizeof divisors[0]; i++) {
+    uint32_t  d   = divisors[i];
+    struct mu mag = magicu(d);
+    for (size_t j = 0; j < sizeof ns / sizeof ns[0]; j++) {
+      uint32_t n = ns[j];
+      uint32_t q = apply_magicu(n, mag);
+      uint32_t r = n - q * d;
+      cr_assert(
+        r < d,
+        "remainder %u >= d=%u for n=%u",
+        r, d, n
+      );
+      cr_assert_eq(
+        q * d + r, n,
+        "q*d+r != n for n=%u d=%u q=%u r=%u",
+        n, d, q, r
+      );
+    }
+  }
+}
