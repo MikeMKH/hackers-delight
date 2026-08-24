@@ -1402,3 +1402,123 @@ Test(magicu, invariant_quotient_times_d_plus_remainder) {
     }
   }
 }
+
+#if defined(__aarch64__)
+
+/*
+  Unsigned division by 7 using absolute value trick.
+  From Hacker's Delight 10-13: take abs(n), divide, then negate q if n < 0.
+ 
+  abs  an, n          -- an = |n| (treat as unsigned magnitude)
+  li   M, 0x92492493  -- magic number (2^34+5)/7
+  mulhu q, M, an      -- q = floor(M * an / 2^32)  [unsigned multiply high]
+  shri q, q, 2        -- q = q >> 2
+  shrsi t, n, 31      -- t = -1 if n < 0, else 0
+  xor  q, q, t        -- q = q ^ t
+  sub  q, q, t        -- q = (q ^ t) - t  [negates q if n was negative]
+ */
+static int32_t udiv7_absmagic_asm(int32_t n) {
+  int32_t q;
+  __asm__ volatile (
+    /* an = abs(n): negate if negative, keep if positive */
+    "cmp   %w[n], #0              \n"
+    "cneg  w2, %w[n], lt          \n"   /* w2 = n < 0 ? -n : n */
+    /* M = 0x92492493 -- magic for unsigned /7 */
+    "mov   w3, #0x2493            \n"
+    "movk  w3, #0x9249, lsl #16   \n"
+    /* q = mulhu(M, an) -- unsigned multiply high 32 bits */
+    "umull x4, w2, w3             \n"   /* x4 = M * an (unsigned 64-bit) */
+    "lsr   x4, x4, #32            \n"   /* x4 = high 32 bits */
+    /* q = q >> 2 */
+    "lsr   w4, w4, #2             \n"
+    /* t = n >> 31 (arithmetic): -1 if n<0, else 0 */
+    "asr   w5, %w[n], #31         \n"
+    /* negate q if n was negative: q = (q ^ t) - t */
+    "eor   w4, w4, w5             \n"   /* q = q ^ t */
+    "sub   %w[q], w4, w5          \n"   /* q = q - t */
+    : [q] "=r" (q)
+    : [n] "r"  (n)
+    : "w2", "w3", "w4", "w5", "x4"
+  );
+  return q;
+}
+
+static void check_udiv7_absmagic(int32_t n) {
+  int32_t got      = udiv7_absmagic_asm(n);
+  int32_t expected = n / 7;
+  cr_assert_eq(
+    got, expected,
+    "udiv7_absmagic(%d) got %d want %d", n, got, expected
+  );
+}
+
+Test(udiv7_absmagic, basic_positive) {
+  check_udiv7_absmagic(0);
+  check_udiv7_absmagic(1);
+  check_udiv7_absmagic(6);
+  check_udiv7_absmagic(7);
+  check_udiv7_absmagic(8);
+  check_udiv7_absmagic(14);
+  check_udiv7_absmagic(100);
+}
+
+Test(udiv7_absmagic, basic_negative) {
+  check_udiv7_absmagic(-1);
+  check_udiv7_absmagic(-6);
+  check_udiv7_absmagic(-7);
+  check_udiv7_absmagic(-8);
+  check_udiv7_absmagic(-14);
+  check_udiv7_absmagic(-100);
+}
+
+Test(udiv7_absmagic, boundary_values) {
+  check_udiv7_absmagic(0x7FFFFFFF);   /* INT_MAX */
+  check_udiv7_absmagic(0x7FFFFFFE);
+  check_udiv7_absmagic((int32_t)0x80000001);  /* INT_MIN + 1 */
+  /* note: INT_MIN = 0x80000000 = -2^31, abs(-2^31) overflows int32
+     but the xor/sub trick still gives the correct signed result */
+  check_udiv7_absmagic((int32_t)0x80000000);
+}
+
+Test(udiv7_absmagic, multiples_of_7) {
+  int32_t cases[] = {0, 7, 14, -7, -14, 700, -700};
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    int32_t n   = cases[i];
+    int32_t got = udiv7_absmagic_asm(n);
+    int32_t expected = n / 7;
+    cr_assert_eq(
+      got, expected,
+      "n=%d: got q=%d want %d", n, got, expected
+    );
+    cr_assert_eq(
+      got * 7, n,
+      "n=%d: q=%d but q*7=%d", n, got, got * 7
+    );
+  }
+}
+
+Test(udiv7_absmagic, agrees_with_builtin) {
+  for (int32_t n = -10000; n <= 10000; n++) { check_udiv7_absmagic(n); }
+}
+
+Test(udiv7_absmagic, compare_with_divrem7) {
+  /* cross-check: this method and the direct divrem7 should agree */
+  int32_t cases[] = {
+    0, 1, -1, 7, -7, 100, -100,
+    0x7FFFFFFF, (int32_t)0x80000001
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    int32_t n        = cases[i];
+    int32_t q_abs    = udiv7_absmagic_asm(n);
+    int32_t q_direct, r_direct;
+    divrem7_asm(n, &q_direct, &r_direct);
+    cr_assert_eq(
+      q_abs, q_direct,
+      "methods disagree for n=%d: abs=%d direct=%d", n, q_abs, q_direct
+    );
+  }
+}
+
+#else
+Test(udiv7_absmagic, skipped) { cr_skip("ARM AArch64 only"); }
+#endif
