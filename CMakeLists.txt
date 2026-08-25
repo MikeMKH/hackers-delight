@@ -35,6 +35,7 @@ function(add_chapter_tests chapter)
     endforeach()
 endfunction()
 
+# ninja -C build && ./build/test_examples10 --verbose 
 add_chapter_tests(chapter01)
 add_chapter_tests(chapter02)
 add_chapter_tests(chapter03)
@@ -45,3 +46,16 @@ add_chapter_tests(chapter07)
 add_chapter_tests(chapter08)
 add_chapter_tests(chapter09)
 add_chapter_tests(chapter10)
+
+# Python tests
+# ctest --test-dir build -R magicgu_python -V
+find_program(PYTHON3 python3)
+if(PYTHON3)
+    enable_testing()
+    add_test(
+        NAME magicgu_python
+        COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/chapter10/test_magicgu.py
+    )
+else()
+    message(WARNING "python3 not found -- skipping Python tests")
+endif()
