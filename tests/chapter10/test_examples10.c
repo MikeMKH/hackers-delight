@@ -1522,3 +1522,30 @@ Test(udiv7_absmagic, compare_with_divrem7) {
 #else
 Test(udiv7_absmagic, skipped) { cr_skip("ARM AArch64 only"); }
 #endif
+
+Test(multiplicative_inverse, a_hat_is_a_multiplicative_inverse_of_a_modulo_m) {
+  u_int8_t m = 16;
+  cr_assert_eq(3 * 11 % m, 1);
+  cr_assert_eq((3 * -5 % m) + m, 1, "normalize to [0, m)");
+}
+
+#if defined(__aarch64__)
+
+Test(multiplicative_inverse, divide_by_7) {
+  uint8_t q, n = 63;
+  __asm__ volatile (
+    /* M = 0xB6DB6DB7 -- magic number for division by 7 */
+    "mov   w2, #0x6DB7             \n"
+    "movk  w2, #0xB6DB, lsl #16    \n"
+    /* q = mul(M, n) -- unsigned multiply */
+    "mul   %w[q], w2, %w[n]          \n"  /* q = M * n */
+    : [q] "=r" (q)
+    : [n] "r"  (n)
+    : "w2", "w3"
+  );
+  cr_assert_eq(q, 9, "divide by 7: got %d want 9", q);
+}
+
+#else
+Test(multiplicative_inverse, skipped) { cr_skip("ARM AArch64 only"); }
+#endif
