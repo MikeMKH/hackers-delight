@@ -1549,3 +1549,134 @@ Test(multiplicative_inverse, divide_by_7) {
 #else
 Test(multiplicative_inverse, skipped) { cr_skip("ARM AArch64 only"); }
 #endif
+
+#include <stdbool.h>
+
+/*
+  Test if n is divisible by 25 without division.
+ 
+  The RISC sequence:
+    li    M, 0xC28F5C29   -- multiplicative inverse of 25 mod 2^32
+    mul   q, M, n         -- q = low 32 bits of M*n  (mulu, not mulhs)
+    li    c, 0x0A3D70A3   -- c = floor((2^32-1)/25)
+    cmpleu t, q, c        -- t = (q <=u c)
+    bt    t, is_mult       -- branch if multiple
+ 
+  In C: (M * n) <= c  where all arithmetic is mod 2^32 (uint32_t).
+ 
+  Why it works:
+    M = 25^(-1) mod 2^32, so M*25 ≡ 1 (mod 2^32).
+    If n = 25*k, then M*n = M*25*k ≡ k (mod 2^32).
+    The multiples of 25 in [0, 2^32) are 0, 25, 50, ..., each mapping
+    to k = 0, 1, 2, ... The largest k is floor((2^32-1)/25) = 0x0A3D70A3.
+    So M*n <=u 0x0A3D70A3 iff n is a multiple of 25.
+ */
+
+#define M25  0xC28F5C29U   /* multiplicative inverse of 25 mod 2^32 */
+#define C25  0x0A3D70A3U   /* floor((2^32 - 1) / 25)                */
+
+static bool is_multiple_of_25(uint32_t n) { return (uint32_t)(M25 * n) <= C25; }
+
+/* verify the constants are correct */
+Test(mult_inverse_25, verify_constants) {
+  /* M25 is the multiplicative inverse of 25 mod 2^32 */
+  cr_assert_eq(
+    (uint32_t)(M25 * 25), 1U,
+    "M25 * 25 mod 2^32 should be 1, got 0x%08X", (uint32_t)(M25 * 25)
+  );
+  /* C25 = floor((2^32-1)/25) */
+  cr_assert_eq(
+    C25, 0xFFFFFFFFU / 25,
+    "C25 should be floor((2^32-1)/25), got 0x%08X", C25
+  );
+  /* C25 * 25 should be the largest multiple of 25 <= 2^32-1 */
+  cr_assert_eq(
+    C25 * 25, 0xFFFFFFEBU,
+    "C25*25 should be largest multiple of 25 below 2^32"
+  );
+  /* (C25+1) * 25 should overflow past 2^32 */
+  cr_assert(
+    (uint64_t)(C25 + 1) * 25 > 0xFFFFFFFFULL,
+    "(C25+1)*25 should exceed 2^32-1"
+  );
+}
+
+Test(mult_inverse_25, known_multiples) {
+  uint32_t multiples[] = {
+    0,
+    25,
+    50,
+    75,
+    100,
+    1000,
+    10000,
+    0xFFFFFFEB,   /* 171798691 * 25 = largest multiple of 25 < 2^32 */
+    0xFFFFFFD2,   /* 171798690 * 25 */
+    0xFFFFFFB9,   /* 171798689 * 25 */
+  };
+  for (size_t i = 0; i < sizeof multiples / sizeof multiples[0]; i++) {
+    uint32_t n = multiples[i];
+    cr_assert(n % 25 == 0, "test data error: 0x%08X not multiple of 25", n);
+    cr_assert(is_multiple_of_25(n), "0x%08X should be detected as multiple of 25", n);
+  }
+}
+
+Test(mult_inverse_25, known_non_multiples) {
+  uint32_t non_multiples[] = {
+    1, 2, 24, 26, 49, 51, 99, 101,
+    0xFFFFFFFF, 0xFFFFFFFE, 0x80000000
+  };
+  for (size_t i = 0; i < sizeof non_multiples / sizeof non_multiples[0]; i++) {
+    uint32_t n = non_multiples[i];
+    cr_assert(!is_multiple_of_25(n), "0x%08X should not be a multiple of 25", n);
+  }
+}
+
+Test(mult_inverse_25, agrees_with_modulo) {
+  /* exhaustive check for all n up to 100000 */
+  for (uint32_t n = 0; n <= 100000; n++) {
+    bool expected = (n % 25 == 0);
+    bool got      = is_multiple_of_25(n);
+    cr_assert_eq(
+      got, expected,
+      "n=%u: is_multiple_of_25=%d but n%%25=%u", n, got, n % 25
+    );
+  }
+}
+
+Test(mult_inverse_25, spot_check_large_values) {
+  /* check around 2^32 boundary */
+  uint32_t cases[] = {
+    0xFFFFFFFF, 0xFFFFFFFE, 0xFFFFFFF5,  /* 0xFFFFFFF5 = 4294967285 = 25*171798691 */
+    0x80000000, 0x7FFFFFFF,
+    0x00000019,  /* 25 */
+    0x00000032,  /* 50 */
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    uint32_t n = cases[i];
+    cr_assert_eq(
+      is_multiple_of_25(n), (n % 25 == 0),
+      "n=0x%08X", n
+    );
+  }
+}
+
+Test(mult_inverse_25, m25_maps_multiples_to_0_through_c25) {
+  /* 
+    The key property: M25*n maps the 0x0A3D70A4 multiples of 25
+    in [0, 2^32) bijectively onto [0, C25].
+    Verify first few: M25*0=0, M25*25=1, M25*50=2, ... 
+  */
+  cr_assert_eq((uint32_t)(M25 *  0),  0U, "M25*0 should map to 0");
+  cr_assert_eq((uint32_t)(M25 * 25),  1U, "M25*25 should map to 1");
+  cr_assert_eq((uint32_t)(M25 * 50),  2U, "M25*50 should map to 2");
+  cr_assert_eq((uint32_t)(M25 * 75),  3U, "M25*75 should map to 3");
+  cr_assert_eq((uint32_t)(M25 * 100), 4U, "M25*100 should map to 4");
+  
+  /* and a non-multiple maps above C25 */
+  uint32_t q = (uint32_t)(M25 * 1);
+  cr_assert(
+    q > C25,
+    "M25*1 = 0x%08X should be > C25 = 0x%08X", q, C25
+  );
+}
