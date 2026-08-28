@@ -1680,3 +1680,247 @@ Test(mult_inverse_25, m25_maps_multiples_to_0_through_c25) {
     "M25*1 = 0x%08X should be > C25 = 0x%08X", q, C25
   );
 }
+
+unsigned divu3(unsigned n) {
+  unsigned n0, n1, w0, w1, w2, t, q;
+  n0 = n & 0xFFFF;
+  n1 = n >> 16;
+  w0 = n0*0xAAAB;
+  t = n1*0xAAAB + (w0 >> 16);
+  w1 = t & 0xFFFF;
+  w2 = t >> 16;
+  w1 = n0*0xAAAA + w1;
+  q = n1*0xAAAA + w2 + (w1 >> 16);
+  return q >> 1;
+}
+
+Test(divu3, known_values) {
+  cr_assert_eq(divu3(0), 0);
+  cr_assert_eq(divu3(1), 0);
+  cr_assert_eq(divu3(2), 0);
+  cr_assert_eq(divu3(3), 1);
+  cr_assert_eq(divu3(4), 1);
+  cr_assert_eq(divu3(5), 1);
+  cr_assert_eq(divu3(6), 2);
+  cr_assert_eq(divu3(7), 2);
+  cr_assert_eq(divu3(8), 2);
+  cr_assert_eq(divu3(9), 3);
+}
+
+Test(divu3, multiples_of_3) {
+  for (unsigned n = 0; n <= 100; n += 3) {
+    unsigned q = divu3(n);
+    cr_assert_eq(q * 3, n, "n=%u: q=%u but q*3=%u", n, q, q*3);
+  }
+}
+
+Test(divu3, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (unsigned n = 0; n <= 10000; n++) {
+    unsigned q = divu3(n);
+    cr_assert_eq(q, n / 3, "n=%u: divu3=%u but n/3=%u", n, q, n/3);
+  }
+}
+
+unsigned alt_divu3(unsigned n) {
+  unsigned q, r;
+  q = (n >> 2) + (n >> 4); /* q = n*0.0101 (approx) */
+  q = q + (q >> 4);        /* q = n*0.01010101 */
+  q = q + (q >> 8);
+  q = q + (q >> 16);
+  r = n - q*3;             /* 0 <= r <= 15 */
+  return q + (11*r >> 5);  /* returning q + r/3 */
+  /* return q + (5*(r + 1) >> 4); */          /* Alternative 1 */
+  /* return q + ((r + 5 + (r << 2)) >> 4); */ /* Alternative 2 */
+}
+
+Test(alt_divu3, known_values) {
+  cr_assert_eq(alt_divu3(0), 0);
+  cr_assert_eq(alt_divu3(1), 0);
+  cr_assert_eq(alt_divu3(2), 0);
+  cr_assert_eq(alt_divu3(3), 1);
+  cr_assert_eq(alt_divu3(4), 1);
+  cr_assert_eq(alt_divu3(5), 1);
+  cr_assert_eq(alt_divu3(6), 2);
+  cr_assert_eq(alt_divu3(7), 2);
+  cr_assert_eq(alt_divu3(8), 2);
+  cr_assert_eq(alt_divu3(9), 3);
+}
+
+Test(alt_divu3, multiples_of_3) {
+  for (unsigned n = 0; n <= 100; n += 3) {
+    unsigned q = alt_divu3(n);
+    cr_assert_eq(q * 3, n, "n=%u: q=%u but q*3=%u", n, q, q*3);
+  }
+}
+
+Test(alt_divu3, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (unsigned n = 0; n <= 10000; n++) {
+    unsigned q = alt_divu3(n);
+    cr_assert_eq(q, n / 3, "n=%u: alt_divu3=%u but n/3=%u", n, q, n/3);
+  }
+}
+
+unsigned divu5a(unsigned n) {
+  unsigned q, r;
+  q = (n >> 3) + (n >> 4);
+  q = q + (q >> 4);
+  q = q + (q >> 8);
+  q = q + (q >> 16);
+  r = n - q*5;
+  return q + (13*r >> 6);
+}
+
+Test(divu5a, known_values) {
+  cr_assert_eq(divu5a(0), 0);
+  cr_assert_eq(divu5a(1), 0);
+  cr_assert_eq(divu5a(2), 0);
+  cr_assert_eq(divu5a(3), 0);
+  cr_assert_eq(divu5a(4), 0);
+  cr_assert_eq(divu5a(5), 1);
+  cr_assert_eq(divu5a(6), 1);
+  cr_assert_eq(divu5a(7), 1);
+  cr_assert_eq(divu5a(8), 1);
+  cr_assert_eq(divu5a(9), 1);
+  cr_assert_eq(divu5a(10), 2);
+}
+
+Test(divu5a, multiples_of_5) {
+  for (unsigned n = 0; n <= 100; n += 5) {
+    unsigned q = divu5a(n);
+    cr_assert_eq(q * 5, n, "n=%u: q=%u but q*5=%u", n, q, q*5);
+  }
+}
+
+Test(divu5a, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (unsigned n = 0; n <= 10000; n++) {
+    unsigned q = divu5a(n);
+    cr_assert_eq(q, n / 5, "n=%u: divu5a=%u but n/5=%u", n, q, n/5);
+  }
+}
+
+unsigned alt_divu5b(unsigned n) {
+  unsigned q, r;
+  q = (n >> 1) + (n >> 2);
+  q = q + (q >> 4);
+  q = q + (q >> 8);
+  q = q + (q >> 16);
+  q = q >> 2;
+  r = n - q*5;
+  return q + (7*r >> 5);
+  /* return q + (r>4) + (r>9); */
+}
+
+Test(alt_divu5b, known_values) {
+  cr_assert_eq(alt_divu5b(0), 0);
+  cr_assert_eq(alt_divu5b(1), 0);
+  cr_assert_eq(alt_divu5b(2), 0);
+  cr_assert_eq(alt_divu5b(3), 0);
+  cr_assert_eq(alt_divu5b(4), 0);
+  cr_assert_eq(alt_divu5b(5), 1);
+  cr_assert_eq(alt_divu5b(6), 1);
+  cr_assert_eq(alt_divu5b(7), 1);
+  cr_assert_eq(alt_divu5b(8), 1);
+  cr_assert_eq(alt_divu5b(9), 1);
+  cr_assert_eq(alt_divu5b(10), 2);
+}
+
+Test(alt_divu5b, multiples_of_5) {
+  for (unsigned n = 0; n <= 100; n += 5) {
+    unsigned q = alt_divu5b(n);
+    cr_assert_eq(q * 5, n, "n=%u: q=%u but q*5=%u", n, q, q*5);
+  }
+}
+
+Test(alt_divu5b, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (unsigned n = 0; n <= 10000; n++) {
+    unsigned q = alt_divu5b(n);
+    cr_assert_eq(q, n / 5, "n=%u: alt_divu5b=%u but n/5=%u", n, q, n/5);
+  }
+}
+
+int divs3(int n) {
+  int q, r;
+  n = n + (n>>31 & 2);     /* add 2 if n < 0 */
+  q = (n >> 2) + (n >> 4); /* q = n*0.0101 (approx) */
+  q = q + (q >> 4);        /* q = n*0.01010101 */
+  q = q + (q >> 8);
+  q = q + (q >> 16);
+  r = n - q*3;             /* 0 <= r <= 14 */
+  return q + (11*r >> 5);  /* returning q + r/3 */
+  /* return q + (5*(r + 1) >> 4); */           /* Alternative 1 */
+  /* return q + ((r + 5 + (r << 2)) >> 4); */  /* Alternative 2 */
+}
+
+Test(divs3, known_values) {
+  cr_assert_eq(divs3(0), 0);
+  cr_assert_eq(divs3(1), 0);
+  cr_assert_eq(divs3(2), 0);
+  cr_assert_eq(divs3(3), 1);
+  cr_assert_eq(divs3(4), 1);
+  cr_assert_eq(divs3(5), 1);
+  cr_assert_eq(divs3(6), 2);
+  cr_assert_eq(divs3(7), 2);
+  cr_assert_eq(divs3(8), 2);
+  cr_assert_eq(divs3(9), 3);
+}
+
+Test(divs3, multiples_of_3) {
+  for (int n = -99; n <= 99; n += 3) {
+    int q = divs3(n);
+    cr_assert_eq(q * 3, n, "n=%d: q=%d but q*3=%d", n, q, q*3);
+  }
+}
+
+Test(divs3, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (int n = -10000; n <= 10000; n++) {
+    int q = divs3(n);
+    cr_assert_eq(q, n / 3, "n=%d: divs3=%d but n/3=%d", n, q, n/3);
+  }
+}
+
+int divs5(int n) {
+  int q, r;
+  n = n + (n>>31 & 4);
+  q = (n >> 1) + (n >> 2);
+  q = q + (q >> 4);
+  q = q + (q >> 8);
+  q = q + (q >> 16);
+  q = q >> 2;
+  r = n - q*5;
+  return q + (7*r >> 5);
+  /* return q + (r>4) + (r>9); */
+}
+
+Test(divs5, known_values) {
+  cr_assert_eq(divs5(0), 0);
+  cr_assert_eq(divs5(1), 0);
+  cr_assert_eq(divs5(2), 0);
+  cr_assert_eq(divs5(3), 0);
+  cr_assert_eq(divs5(4), 0);
+  cr_assert_eq(divs5(5), 1);
+  cr_assert_eq(divs5(6), 1);
+  cr_assert_eq(divs5(7), 1);
+  cr_assert_eq(divs5(8), 1);
+  cr_assert_eq(divs5(9), 1);
+  cr_assert_eq(divs5(10), 2);
+}
+
+Test(divs5, multiples_of_5) {
+  for (int n = -100; n <= 100; n += 5) {
+    int q = divs5(n);
+    cr_assert_eq(q * 5, n, "n=%d: q=%d but q*5=%d", n, q, q*5);
+  }
+}
+
+Test(divs5, agrees_with_builtin) {
+  /* exhaustive check over a range */
+  for (int n = -10000; n <= 10000; n++) {
+    int q = divs5(n);
+    cr_assert_eq(q, n / 5, "n=%d: divs5=%d but n/5=%d", n, q, n/5);
+  }
+}
