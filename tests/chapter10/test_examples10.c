@@ -1924,3 +1924,220 @@ Test(divs5, agrees_with_builtin) {
     cr_assert_eq(q, n / 5, "n=%d: divs5=%d but n/5=%d", n, q, n/5);
   }
 }
+
+int remu3(unsigned n) {
+  n = __builtin_popcount(n ^ 0xAAAAAAAA) + 23; /* 23 <= n <= 55 */
+  n = __builtin_popcount(n ^ 0x2A) - 3;        /* -3 <= n <= 2 */
+  return n + (((int)n >> 31) & 3);             /* signed shift */
+}
+
+Test(remu3, known_values) {
+  cr_assert_eq(remu3(0), 0);
+  cr_assert_eq(remu3(1), 1);
+  cr_assert_eq(remu3(2), 2);
+  cr_assert_eq(remu3(3), 0);
+  cr_assert_eq(remu3(4), 1);
+  cr_assert_eq(remu3(5), 2);
+  cr_assert_eq(remu3(6), 0);
+  cr_assert_eq(remu3(7), 1);
+  cr_assert_eq(remu3(8), 2);
+}
+
+Test(remu3, multiples_of_3) {
+  for (unsigned n = 0; n <= 100; n += 3) {
+    unsigned r = remu3(n);
+    cr_assert_eq(r, 0, "n=%u: remu3=%u but n%%3=%u", n, r, n%3);
+  }
+}
+
+int remu3_table_lookup(unsigned n) {
+  static char table[33] = {
+        2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1
+  };
+  n = __builtin_popcount(n ^ 0xAAAAAAAA);
+  return table[n];
+}
+
+Test(remu3_table_lookup, known_values) {
+  cr_assert_eq(remu3_table_lookup(0), 0);
+  cr_assert_eq(remu3_table_lookup(1), 1);
+  cr_assert_eq(remu3_table_lookup(2), 2);
+  cr_assert_eq(remu3_table_lookup(3), 0);
+  cr_assert_eq(remu3_table_lookup(4), 1);
+  cr_assert_eq(remu3_table_lookup(5), 2);
+  cr_assert_eq(remu3_table_lookup(6), 0);
+  cr_assert_eq(remu3_table_lookup(7), 1);
+  cr_assert_eq(remu3_table_lookup(8), 2);
+}
+
+Test(remu3_table_lookup, multiples_of_3) {
+  for (unsigned n = 0; n <= 100; n += 3) {
+    unsigned r = remu3_table_lookup(n);
+    cr_assert_eq(r, 0, "n=%u: remu3_table_lookup=%u but n%%3=%u", n, r, n%3);
+  }
+}
+
+int remu3_register_lookup(unsigned n) {
+  n = (n >> 16) + (n & 0xFFFF); /* max 0x1FFFE */
+  n = (n >> 8) + (n & 0x00FF);  /* max 0x2FD */
+  n = (n >> 4) + (n & 0x000F);  /* max 0x3D */
+  n = (n >> 2) + (n & 0x0003);  /* max 0x11 */
+  n = (n >> 2) + (n & 0x0003);  /* max 0x6 */
+  return (0x0924 >> (n << 1)) & 3;
+}
+
+Test(remu3_register_lookup, known_values) {
+  cr_assert_eq(remu3_register_lookup(0), 0);
+  cr_assert_eq(remu3_register_lookup(1), 1);
+  cr_assert_eq(remu3_register_lookup(2), 2);
+  cr_assert_eq(remu3_register_lookup(3), 0);
+  cr_assert_eq(remu3_register_lookup(4), 1);
+  cr_assert_eq(remu3_register_lookup(5), 2);
+  cr_assert_eq(remu3_register_lookup(6), 0);
+  cr_assert_eq(remu3_register_lookup(7), 1);
+  cr_assert_eq(remu3_register_lookup(8), 2);
+}
+
+Test(remu3_register_lookup, multiples_of_3) {
+  for (unsigned n = 0; n <= 100; n += 3) {
+    unsigned r = remu3_register_lookup(n);
+    cr_assert_eq(r, 0, "n=%u: remu3_register_lookup=%u but n%%3=%u", n, r, n%3);
+  }
+}
+
+int remu3_register_table_lookup(unsigned n) {
+  static char table[62] = {
+    0,1,2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1,2, 0,1
+  };
+  n = (n >> 16) + (n & 0xFFFF); /* max 0x1FFFE */
+  n = (n >> 8) + (n & 0x00FF);  /* max 0x2FD */
+  n = (n >> 4) + (n & 0x000F);  /* max 0x3D */
+  return table[n];
+}
+
+Test(remu3_register_table_lookup, known_values) {
+  cr_assert_eq(remu3_register_table_lookup(0), 0);
+  cr_assert_eq(remu3_register_table_lookup(1), 1);
+  cr_assert_eq(remu3_register_table_lookup(2), 2);
+  cr_assert_eq(remu3_register_table_lookup(3), 0);
+  cr_assert_eq(remu3_register_table_lookup(4), 1);
+  cr_assert_eq(remu3_register_table_lookup(5), 2);
+  cr_assert_eq(remu3_register_table_lookup(6), 0);
+  cr_assert_eq(remu3_register_table_lookup(7), 1);
+  cr_assert_eq(remu3_register_table_lookup(8), 2);
+}
+
+Test(remu3_register_table_lookup, multiples_of_3) {
+  for (unsigned n = 0; n <= 100; n += 3) {
+    unsigned r = remu3_register_table_lookup(n);
+    cr_assert_eq(r, 0, "n=%u: remu3_register_table_lookup=%u but n%%3=%u", n, r, n%3);
+  }
+}
+
+int remu7(unsigned n) {
+  static char table[75] = {
+    0,1,2,3,4,5,6, 0,1,2,3,4,5,6,
+    0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4,5,6,
+    0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4,5,6,
+    0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4
+  };
+  n = (n >> 15) + (n & 0x7FFF); /* max 0x27FFE */
+  n = (n >> 9) + (n & 0x001FF); /* max 0x33D */
+  n = (n >> 6) + (n & 0x0003F); /* max 0x4A */
+  return table[n];
+}
+
+Test(remu7, known_values) {
+  cr_assert_eq(remu7(0), 0);
+  cr_assert_eq(remu7(1), 1);
+  cr_assert_eq(remu7(2), 2);
+  cr_assert_eq(remu7(3), 3);
+  cr_assert_eq(remu7(4), 4);
+  cr_assert_eq(remu7(5), 5);
+  cr_assert_eq(remu7(6), 6);
+  cr_assert_eq(remu7(7), 0);
+  cr_assert_eq(remu7(8), 1);
+  cr_assert_eq(remu7(9), 2);
+}
+
+Test(remu7, multiples_of_7) {
+  for (unsigned n = 0; n <= 100; n += 7) {
+    unsigned r = remu7(n);
+    cr_assert_eq(r, 0, "n=%u: remu7=%u but n%%7=%u", n, r, n%7);
+  }
+}
+
+int rems3(int n) {
+  unsigned r;
+  static char table[62] = {
+    0,1,2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2, 0,1,2,
+    0,1,2, 0,1,2, 0,1
+  };
+  r = n;
+  r = (r >> 16) + (r & 0xFFFF); /* max 0x1FFFE */
+  r = (r >> 8) + (r & 0x00FF);  /* max 0x2FD */
+  r = (r >> 4) + (r & 0x000F);  /* max 0x3D */
+  r = table[r];
+  return r - (((unsigned)n >> 31) << (r & 2));
+}
+
+Test(rems3, known_values) {
+  cr_assert_eq(rems3(0), 0);
+  cr_assert_eq(rems3(1), 1);
+  cr_assert_eq(rems3(2), 2);
+  cr_assert_eq(rems3(3), 0);
+  cr_assert_eq(rems3(4), 1);
+  cr_assert_eq(rems3(5), 2);
+  cr_assert_eq(rems3(6), 0);
+  cr_assert_eq(rems3(7), 1);
+  cr_assert_eq(rems3(8), 2);
+}
+
+Test(rems3, multiples_of_3) {
+  for (int n = -99; n <= 99; n += 3) {
+    int r = rems3(n);
+    cr_assert_eq(r, 0, "n=%d: rems3=%d but n%%3=%d", n, r, n%3);
+  }
+}
+
+int rems7(int n) {
+  int r;
+  static char table[75] = {
+              5,6, 0,1,2,3,4,5,6,
+    0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4,5,6,
+    0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4,5,6,
+    0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2
+  };
+  r = (n >> 15) + (n & 0x7FFF); /* FFFF0000 to 17FFE */
+  r = (r >> 9) + (r & 0x001FF); /* FFFFFF80 to 2BD */
+  r = (r >> 6) + (r & 0x0003F); /* -2 to 72 (decimal) */
+  r = table[r + 2];
+  return r - (((int)(n & -r) >> 31) & 7);
+}
+
+Test(rems7, known_values) {
+  cr_assert_eq(rems7(0), 0);
+  cr_assert_eq(rems7(1), 1);
+  cr_assert_eq(rems7(2), 2);
+  cr_assert_eq(rems7(3), 3);
+  cr_assert_eq(rems7(4), 4);
+  cr_assert_eq(rems7(5), 5);
+  cr_assert_eq(rems7(6), 6);
+  cr_assert_eq(rems7(7), 0);
+  cr_assert_eq(rems7(8), 1);
+  cr_assert_eq(rems7(9), 2);
+}
+
+Test(rems7, multiples_of_7) {
+  for (int n = -98; n <= 98; n += 7) {
+    int r = rems7(n);
+    cr_assert_eq(r, 0, "n=%d: rems7=%d but n%%7=%d", n, r, n%7);
+  }
+}
