@@ -2141,3 +2141,95 @@ Test(rems7, multiples_of_7) {
     cr_assert_eq(r, 0, "n=%d: rems7=%d but n%%7=%d", n, r, n%7);
   }
 }
+
+int remu3_by_multiply(unsigned n) {  return (0x55555555*n + (n >> 1) - (n >> 3)) >> 30;  }
+
+Test(remu3_by_multiply, known_values) {
+  cr_assert_eq(remu3_by_multiply(0), 0);
+  cr_assert_eq(remu3_by_multiply(1), 1);
+  cr_assert_eq(remu3_by_multiply(2), 2);
+  cr_assert_eq(remu3_by_multiply(3), 0);
+  cr_assert_eq(remu3_by_multiply(4), 1);
+  cr_assert_eq(remu3_by_multiply(5), 2);
+  cr_assert_eq(remu3_by_multiply(6), 0);
+  cr_assert_eq(remu3_by_multiply(7), 1);
+  cr_assert_eq(remu3_by_multiply(8), 2);
+}
+
+int remu3_by_shifts(unsigned n) {
+  unsigned r;
+  r = n + (n << 2);
+  r = r + (r << 4);
+  r = r + (r << 8);
+  r = r + (r << 16);
+  r = r + (n >> 1);
+  r = r - (n >> 3);
+  return r >> 30;
+}
+
+Test(remu3_by_shifts, known_values) {
+  cr_assert_eq(remu3_by_shifts(0), 0);
+  cr_assert_eq(remu3_by_shifts(1), 1);
+  cr_assert_eq(remu3_by_shifts(2), 2);
+  cr_assert_eq(remu3_by_shifts(3), 0);
+  cr_assert_eq(remu3_by_shifts(4), 1);
+  cr_assert_eq(remu3_by_shifts(5), 2);
+  cr_assert_eq(remu3_by_shifts(6), 0);
+  cr_assert_eq(remu3_by_shifts(7), 1);
+  cr_assert_eq(remu3_by_shifts(8), 2);
+}
+
+int remu7_by_multiply(unsigned n) {
+  n = (0x24924924*n + (n >> 1) + (n >> 4)) >> 29;
+  return n & ((int)(n - 7) >> 31);
+}
+
+Test(remu7_by_multiply, known_values) {
+  cr_assert_eq(remu7_by_multiply(0), 0);
+  cr_assert_eq(remu7_by_multiply(1), 1);
+  cr_assert_eq(remu7_by_multiply(2), 2);
+  cr_assert_eq(remu7_by_multiply(3), 3);
+  cr_assert_eq(remu7_by_multiply(4), 4);
+  cr_assert_eq(remu7_by_multiply(5), 5);
+  cr_assert_eq(remu7_by_multiply(6), 6);
+  cr_assert_eq(remu7_by_multiply(7), 0);
+  cr_assert_eq(remu7_by_multiply(8), 1);
+  cr_assert_eq(remu7_by_multiply(9), 2);
+}
+
+int remu63_by_keane(unsigned n) {
+  unsigned t;
+  t = (((n >> 12) + n) >> 10) + (n << 2);
+  t = ((t >> 6) + t + 3) & 0xFF;
+  return (t - (t >> 6)) >> 2;
+}
+
+Test(remu63_by_keane, known_values) {
+  cr_assert_eq(remu63_by_keane(0), 0);
+  cr_assert_eq(remu63_by_keane(1), 1);
+  cr_assert_eq(remu63_by_keane(2), 2);
+  cr_assert_eq(remu63_by_keane(3), 3);
+  cr_assert_eq(remu63_by_keane(11), 11);
+  cr_assert_eq(remu63_by_keane(33), 33);
+  cr_assert_eq(remu63_by_keane(63), 0);
+  cr_assert_eq(remu63_by_keane(64), 1);
+  cr_assert_eq(remu63_by_keane(65), 2);
+}
+
+int rems3_by_multiply(int n) {
+  unsigned r = n;
+  r = (0x55555555*r + (r >> 1) - (r >> 3)) >> 30;
+  return r - (((unsigned)n >> 31) << (r & 2));
+}
+
+Test(rems3_by_multiply, known_values) {
+  cr_assert_eq(rems3_by_multiply(0), 0);
+  cr_assert_eq(rems3_by_multiply(1), 1);
+  cr_assert_eq(rems3_by_multiply(2), 2);
+  cr_assert_eq(rems3_by_multiply(3), 0);
+  cr_assert_eq(rems3_by_multiply(4), 1);
+  cr_assert_eq(rems3_by_multiply(5), 2);
+  cr_assert_eq(rems3_by_multiply(6), 0);
+  cr_assert_eq(rems3_by_multiply(7), 1);
+  cr_assert_eq(rems3_by_multiply(8), 2);
+}
