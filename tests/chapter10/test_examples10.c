@@ -2233,3 +2233,40 @@ Test(rems3_by_multiply, known_values) {
   cr_assert_eq(rems3_by_multiply(7), 1);
   cr_assert_eq(rems3_by_multiply(8), 2);
 }
+
+unsigned divu3_from_rem(unsigned n) {
+  unsigned r, m = 0xAAAAAAAB;
+  r = ((m>>1)*n + (n >> 1) - (n >> 3)) >> 30;
+  return (n - r)*m;
+}
+
+Test(divu3_from_rem, known_values) {
+  cr_assert_eq(divu3_from_rem(0), 0);
+  cr_assert_eq(divu3_from_rem(1), 0);
+  cr_assert_eq(divu3_from_rem(2), 0);
+  cr_assert_eq(divu3_from_rem(3), 1);
+  cr_assert_eq(divu3_from_rem(4), 1);
+  cr_assert_eq(divu3_from_rem(5), 1);
+  cr_assert_eq(divu3_from_rem(6), 2);
+  cr_assert_eq(divu3_from_rem(7), 2);
+  cr_assert_eq(divu3_from_rem(8), 2);
+}
+
+int divs3_from_rem(int n) {
+  unsigned r = n, m = 0xAAAAAAAB;
+  r = ((m>>1)*r + (r >> 1) - (r >> 3)) >> 30;
+  r = r - (((unsigned)n >> 31) << (r & 2));
+  return (n - r)*m;
+}
+
+Test(divs3_from_rem, known_values) {
+  cr_assert_eq(divs3_from_rem(0), 0);
+  cr_assert_eq(divs3_from_rem(1), 0);
+  cr_assert_eq(divs3_from_rem(2), 0);
+  cr_assert_eq(divs3_from_rem(3), 1);
+  cr_assert_eq(divs3_from_rem(4), 1);
+  cr_assert_eq(divs3_from_rem(5), 1);
+  cr_assert_eq(divs3_from_rem(6), 2);
+  cr_assert_eq(divs3_from_rem(7), 2);
+  cr_assert_eq(divs3_from_rem(8), 2);
+}
