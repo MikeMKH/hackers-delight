@@ -46,6 +46,7 @@ add_chapter_tests(chapter07)
 add_chapter_tests(chapter08)
 add_chapter_tests(chapter09)
 add_chapter_tests(chapter10)
+add_chapter_tests(chapter11)
 
 # Python tests
 # ctest --test-dir build -R magicgu_python -V
