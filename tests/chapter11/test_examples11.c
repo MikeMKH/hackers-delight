@@ -221,3 +221,126 @@ Test(icbrt, edge_cases) {
   cr_assert_eq(icbrt(2), 1);
   cr_assert_eq(icbrt(3), 1);
 }
+
+#include <stdio.h>
+
+uint8_t icbrt_u8(uint8_t x) {
+  uint8_t y = 0;
+  uint8_t b;
+
+  for (int s = 6; s >= 0; s -= 3) {
+    y = (uint8_t)(y * 2);
+    b = (uint8_t)((3 * y * (y + 1) + 1) << s);
+    if (x >= b) {
+      x = (uint8_t)(x - b);
+      y = (uint8_t)(y + 1);
+    }
+  }
+  return y;
+}
+
+uint8_t icbrt_u8_print_trace(uint8_t x) {
+  uint8_t y = 0;
+  uint8_t b;
+
+  printf("x = %3u  (0b", x);
+  for (int bit = 7; bit >= 0; bit--) {
+    putchar(((x >> bit) & 1) ? '1' : '0');
+  }
+  printf(")\n\n");
+
+  printf(" s   y_in    b   x_in  x>=b?  y_out  x_out\n");
+  printf("--   ----  -----  ----  -----  -----  -----\n");
+
+  for (int s = 6; s >= 0; s -= 3) {
+    uint8_t y_in = y;
+    uint8_t x_in = x;
+
+    y = (uint8_t)(y * 2);
+    b = (uint8_t)((3 * y * (y + 1) + 1) << s);
+
+    int took = (x >= b);
+    if (took) {
+      x = (uint8_t)(x - b);
+      y = (uint8_t)(y + 1);
+    }
+
+    printf("%2d    %3u  %5u   %3u   %s     %3u    %3u\n",
+           s, y_in, b, x_in, took ? "yes" : " no", y, x);
+  }
+
+  printf("\ncube root = %u, remainder = %u\n", y, x);
+  return y;
+}
+
+/*
+  Reference implementation: largest r such that r^3 <= x. Deliberately
+  written differently from icbrt_u8 (linear search, no bit tricks) so
+  it can't share a bug with the code under test.
+*/
+static uint8_t reference_cbrt(uint8_t x) {
+  uint8_t r = 0;
+  while ((uint32_t)(r + 1) * (r + 1) * (r + 1) <= x) {
+    r++;
+  }
+  return r;
+}
+
+Test(icbrt_u8, exhaustive_8bit) {
+  for (int x = 0; x <= 255; x++) {
+    uint8_t want = reference_cbrt((uint8_t)x);
+    uint8_t got = icbrt_u8((uint8_t)x);
+    cr_assert_eq(got, want, "x=%d got=%u want=%u", x, got, want);
+  }
+}
+
+Test(icbrt_u8, known_cubes) {
+  cr_assert_eq(icbrt_u8(0), 0);
+  cr_assert_eq(icbrt_u8(1), 1);
+  cr_assert_eq(icbrt_u8(8), 2);
+  cr_assert_eq(icbrt_u8(27), 3);
+  cr_assert_eq(icbrt_u8(64), 4);
+  cr_assert_eq(icbrt_u8(125), 5);
+  cr_assert_eq(icbrt_u8(216), 6);
+}
+
+Test(icbrt_u8, edge_cases) {
+  cr_assert_eq(icbrt_u8(0), 0);
+  cr_assert_eq(icbrt_u8(1), 1);
+  cr_assert_eq(icbrt_u8(2), 1);
+  cr_assert_eq(icbrt_u8(3), 1);
+  cr_assert_eq(icbrt_u8(7), 1);   /* just below 2^3   */
+  cr_assert_eq(icbrt_u8(9), 2);   /* just above 2^3   */
+  cr_assert_eq(icbrt_u8(255), 6); /* 6^3=216, 7^3=343 */
+}
+
+/*
+  No assertions, prints the cycle-by-cycle trace to stdout.
+*/
+Test(icbrt_u8, print_trace_demo) {
+  icbrt_u8_print_trace(179);
+  printf("\n");
+  icbrt_u8_print_trace(255);
+}
+
+/*
+x = 179  (0b10110011)
+
+ s   y_in    b   x_in  x>=b?  y_out  x_out
+--   ----  -----  ----  -----  -----  -----
+ 6      0     64   179   yes       1    115
+ 3      1    152   115    no       2    115
+ 0      2     61   115   yes       5     54
+
+cube root = 5, remainder = 54
+
+x = 255  (0b11111111)
+
+ s   y_in    b   x_in  x>=b?  y_out  x_out
+--   ----  -----  ----  -----  -----  -----
+ 6      0     64   255   yes       1    191
+ 3      1    152   191   yes       3     39
+ 0      3    127    39    no       6     39
+
+cube root = 6, remainder = 39
+*/
