@@ -192,3 +192,32 @@ Test(isqrt_hardware_algo, large_values) {
   cr_assert_eq(isqrt_hardware_algo(10000), 100);
   cr_assert_eq(isqrt_hardware_algo(1000000), 1000);
 }
+
+int32_t icbrt(uint32_t x) {
+  int32_t s;
+  uint32_t y, b;
+  
+  y = 0;
+  for (s = 30; s >= 0; s -= 3) {
+    y *= 2;
+    b = (3 * y * (y + 1) + 1) << s;
+    if (x >= b) { x -= b; y++; }
+  }
+  return y;
+}
+
+Test(icbrt, basic) {
+  cr_assert_eq(icbrt(0), 0);
+  cr_assert_eq(icbrt(1), 1);
+  cr_assert_eq(icbrt(8), 2);
+  cr_assert_eq(icbrt(27), 3);
+  cr_assert_eq(icbrt(64), 4);
+  cr_assert_eq(icbrt(125), 5);
+}
+
+Test(icbrt, edge_cases) {
+  cr_assert_eq(icbrt(0), 0);
+  cr_assert_eq(icbrt(1), 1);
+  cr_assert_eq(icbrt(2), 1);
+  cr_assert_eq(icbrt(3), 1);
+}
