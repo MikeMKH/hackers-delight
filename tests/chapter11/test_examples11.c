@@ -318,6 +318,7 @@ Test(icbrt_u8, edge_cases) {
   No assertions, prints the cycle-by-cycle trace to stdout.
 */
 Test(icbrt_u8, print_trace_demo) {
+  printf("\n\n**  icbrt_u8  **\n\n");
   icbrt_u8_print_trace(179);
   printf("\n");
   icbrt_u8_print_trace(255);
@@ -369,3 +370,121 @@ Test(iexp, edge_cases) {
   cr_assert_eq(iexp(1, 0), 1);
   cr_assert_eq(iexp(0, 1), 0);
 }
+
+#include <stdio.h>
+
+int8_t iexp_i8(int8_t x, uint8_t n) {
+  int8_t p, y;
+
+  y = 1;
+  p = x;
+  while (1) {
+    if (n & 1) {
+      y = (int8_t)(y * p);
+    }
+    n = (uint8_t)(n >> 1);
+    if (n == 0) {
+      return y;
+    }
+    p = (int8_t)(p * p);
+  }
+}
+
+int8_t iexp_i8_print_trace(int8_t x, uint8_t n) {
+  int8_t p = x;
+  int8_t y = 1;
+  int step = 0;
+
+  printf("x = %d, n = %u\n\n", x, n);
+  printf("step  n_in  bit  y_in  p_in   y_out  p_out\n");
+  printf("----  ----  ---  ----  ----   -----  -----\n");
+
+  while (1) {
+    uint8_t n_in = n;
+    int8_t y_in = y;
+    int8_t p_in = p;
+    int bit = n & 1;
+
+    if (bit) {
+      y = (int8_t)(y * p);
+    }
+    n = (uint8_t)(n >> 1);
+
+    printf("%4d  %4u   %d   %4d  %4d   %5d",
+           step, n_in, bit, y_in, p_in, y);
+
+    if (n == 0) {
+      printf("    --\n\nexp result = %d\n", y);
+      return y;
+    }
+
+    p = (int8_t)(p * p);
+    printf("  %5d\n", p);
+    step++;
+  }
+}
+
+Test(iexp_i8, basic) {
+  cr_assert_eq(iexp_i8(2, 3), 8);
+  cr_assert_eq(iexp_i8(3, 2), 9);
+  cr_assert_eq(iexp_i8(4, 2), 16);
+  cr_assert_eq(iexp_i8(3, 4), 81);
+  cr_assert_eq(iexp_i8(5, 2), 25);
+}
+
+Test(iexp_i8, edge_cases) {
+  cr_assert_eq(iexp_i8(0, 0), 1);
+  cr_assert_eq(iexp_i8(1, 0), 1);
+  cr_assert_eq(iexp_i8(0, 1), 0);
+}
+
+Test(iexp_i8, negative_base) {
+  cr_assert_eq(iexp_i8(-3, 3), -27);
+  /* Exact fit: -(2^7) = -128 = INT8_MIN, the one case where the true
+   * mathematical result and the wrapped result happen to coincide. */
+  cr_assert_eq(iexp_i8(-2, 7), -128);
+}
+
+/*
+  Documents expected wraparound rather than hiding it: 2^7 = 128
+  doesn't fit in int8_t (max 127), so it truncates to -128. This is
+  implementation-defined narrowing on assignment, not undefined
+  behavior -- confirmed clean under ASan/UBSan. If this assertion
+  ever starts failing, something changed about the truncation
+  behavior, not necessarily a regression in the algorithm itself.
+*/
+Test(iexp_i8, documented_wraparound) {
+  cr_assert_eq(iexp_i8(2, 7), -128,
+               "2^7=128 should wrap to -128 in int8_t");
+}
+
+/*
+  No assertions -- prints the cycle-by-cycle trace to stdout,
+  including the wraparound case.
+*/
+Test(iexp_i8, print_trace_demo) {
+  printf("\n\n**  iexp_i8  **\n\n");
+  iexp_i8_print_trace(3, 4);
+  printf("\n");
+  iexp_i8_print_trace(2, 7);
+}
+
+/*
+x = 3, n = 4
+
+step  n_in  bit  y_in  p_in   y_out  p_out
+----  ----  ---  ----  ----   -----  -----
+   0     4   0      1     3       1      9
+   1     2   0      1     9       1     81
+   2     1   1      1    81      81    --
+
+exp result = 81
+
+x = 2, n = 7
+
+step  n_in  bit  y_in  p_in   y_out  p_out
+----  ----  ---  ----  ----   -----  -----
+   0     7   1      1     2       2      4
+   1     3   1      2     4       8     16
+   2     1   1      8    16    -128    --
+*/
