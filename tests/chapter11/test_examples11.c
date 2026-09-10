@@ -344,3 +344,28 @@ x = 255  (0b11111111)
 
 cube root = 6, remainder = 39
 */
+
+int32_t iexp(int32_t x, uint32_t n) {
+  int32_t p, y;
+  
+  y = 1; p = x;
+  while(1) {
+    if (n & 1) y *= p;
+    n >>= 1;
+    if (n == 0) return y;
+    p *= p;
+  }
+}
+
+Test(iexp, basic) {
+  cr_assert_eq(iexp(2, 3), 8);
+  cr_assert_eq(iexp(3, 2), 9);
+  cr_assert_eq(iexp(4, 2), 16);
+  cr_assert_eq(iexp(3, 16), 43046721);
+}
+
+Test(iexp, edge_cases) {
+  cr_assert_eq(iexp(0, 0), 1);
+  cr_assert_eq(iexp(1, 0), 1);
+  cr_assert_eq(iexp(0, 1), 0);
+}
