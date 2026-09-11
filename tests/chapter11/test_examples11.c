@@ -488,3 +488,142 @@ step  n_in  bit  y_in  p_in   y_out  p_out
    1     3   1      2     4       8     16
    2     1   1      8    16    -128    --
 */
+
+int32_t ilog10(uint32_t x) {
+  int32_t i;
+  static uint32_t table[11] = {
+    0, 9, 99, 999, 9999, 99999, 999999, 9999999, 99999999, 999999999, 0xFFFFFFFF
+  };
+  
+  for (i = -1; ; i++) {
+    if (x <= table[i+1]) return i;
+  }
+}
+
+Test(ilog10, basic) {
+  cr_assert_eq(ilog10(0), -1);
+  cr_assert_eq(ilog10(1), 0);
+  cr_assert_eq(ilog10(9), 0);
+  cr_assert_eq(ilog10(10), 1);
+  cr_assert_eq(ilog10(99), 1);
+  cr_assert_eq(ilog10(100), 2);
+}
+
+Test(ilog10, edge_cases) {
+  cr_assert_eq(ilog10(999), 2);
+  cr_assert_eq(ilog10(1000), 3);
+}
+
+/* from chapter 5 */
+int nlz_32(uint32_t x) {
+  if (x == 0) return 32;
+  
+  int n = 0;
+  if (x <= 0x0000FFFF) { n += 16; x <<= 16; }
+  if (x <= 0x00FFFFFF) { n += 8; x <<= 8; }
+  if (x <= 0x0FFFFFFF) { n += 4; x <<= 4; }
+  if (x <= 0x3FFFFFFF) { n += 2; x <<= 2; }
+  if (x <= 0x7FFFFFFF) { n += 1; }
+  return n;
+}
+
+int32_t ilog10_branch_free(uint32_t x) {
+  int y;
+  static unsigned table2[11] = {
+    0, 9, 99, 999, 9999,  99999, 999999, 9999999, 99999999, 999999999,  0xFFFFFFFF
+  };
+  y = (19*(31 - nlz_32(x))) >> 6;
+  y = y + ((table2[y+1] - x) >> 31);
+  return y;
+}
+
+Test(ilog10_branch_free, basic) {
+  cr_assert_eq(ilog10_branch_free(0), -1);
+  cr_assert_eq(ilog10_branch_free(1), 0);
+  cr_assert_eq(ilog10_branch_free(9), 0);
+  cr_assert_eq(ilog10_branch_free(10), 1);
+  cr_assert_eq(ilog10_branch_free(99), 1);
+  cr_assert_eq(ilog10_branch_free(100), 2);
+}
+
+Test(ilog10_branch_free, edge_cases) {
+  cr_assert_eq(ilog10_branch_free(999), 2);
+  cr_assert_eq(ilog10_branch_free(1000), 3);
+}
+
+int32_t ilog2(uint32_t x) {
+  return 31 - nlz_32(x);
+}
+
+Test(ilog2, basic) {
+  cr_assert_eq(ilog2(0), -1);
+  cr_assert_eq(ilog2(1), 0);
+  cr_assert_eq(ilog2(2), 1);
+  cr_assert_eq(ilog2(3), 1);
+  cr_assert_eq(ilog2(4), 2);
+}
+
+Test(ilog2, edge_cases) {
+  cr_assert_eq(ilog2(8), 3);
+  cr_assert_eq(ilog2(16), 4);
+}
+
+/*
+ Codegen note: on x86 (no -mlzcnt), __builtin_clz doesn't map to a
+ single instruction -- the compiler emits BSR (bit-scan-reverse,
+ which finds the *highest set bit's index*) and then XORs the
+ result against 31 to convert "index of highest bit" into "count of
+ leading zeros". On ARM64, __builtin_clz lowers directly to the
+ CLZ instruction, which computes leading-zero count natively, so
+ that extra XOR disappears. Either way, the x == 0 guard compiles
+ to a flag-setting compare (SETcc / CSET) rather than a jump, so
+ the whole function stays branch-free on both targets -- ARM64
+ just does it in one fewer instruction than x86.
+*/
+int nlz_32_clz(uint32_t x) {
+  uint32_t safe = x | (uint32_t)(x == 0);
+  return __builtin_clz(safe) + (int)(x == 0);
+}
+ 
+int32_t ilog2_clz(uint32_t x) {
+  return 31 - nlz_32_clz(x);
+}
+
+Test(nlz_32_clz, matches_reference_low_range) {
+  for (uint32_t x = 0; x <= 0xFFFFu; x++) {
+    cr_assert_eq(nlz_32_clz(x), nlz_32(x), "x=%u", x);
+  }
+}
+
+/*
+ Every threshold nlz_32_reference branches on, and the value one past it.
+*/
+Test(nlz_32_clz, matches_reference_boundaries) {
+  uint32_t boundaries[] = {
+    0, 1,
+    0x0000FFFFu, 0x00010000u,
+    0x00FFFFFFu, 0x01000000u,
+    0x0FFFFFFFu, 0x10000000u,
+    0x3FFFFFFFu, 0x40000000u,
+    0x7FFFFFFFu, 0x80000000u,
+    0xFFFFFFFFu,
+  };
+  for (size_t i = 0; i < sizeof(boundaries) / sizeof(boundaries[0]); i++) {
+    uint32_t x = boundaries[i];
+    cr_assert_eq(nlz_32_clz(x), nlz_32(x), "x=%u", x);
+  }
+}
+
+Test(ilog2_clz, basic) {
+  cr_assert_eq(ilog2_clz(0), -1);
+  cr_assert_eq(ilog2_clz(1), 0);
+  cr_assert_eq(ilog2_clz(2), 1);
+  cr_assert_eq(ilog2_clz(3), 1);
+  cr_assert_eq(ilog2_clz(4), 2);
+}
+
+Test(ilog2_clz, edge_cases) {
+  cr_assert_eq(ilog2_clz(8), 3);
+  cr_assert_eq(ilog2_clz(16), 4);
+  cr_assert_eq(ilog2_clz(0xFFFFFFFFu), 31);
+}
