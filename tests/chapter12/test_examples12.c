@@ -382,3 +382,48 @@ a = 0b00010101   b = 0b01111010
 
 result = 0b01001111
 */
+
+int8_t *to_base_4(uint8_t n) {
+  uint8_t base_negative_2 = to_base_negative_2(n);
+  int8_t *result = malloc(4 * sizeof(int8_t));
+  for (int i = 0; i < 4; i++) {
+    result[i] = from_base_negative_2((base_negative_2 >> (2 * i)) & 0b11);
+  }
+  return result;
+}
+
+Test(to_base_4, known_values) {
+  int8_t *result;
+
+  /* to_base_negative_2(0) = 0b00000000 */
+  result = to_base_4(0);
+  cr_assert_eq(result[0], 0);
+  cr_assert_eq(result[1], 0);
+  cr_assert_eq(result[2], 0);
+  cr_assert_eq(result[3], 0);
+  free(result);
+
+  /* to_base_negative_2(1) = 0b00000001 */
+  result = to_base_4(1);
+  cr_assert_eq(result[0], 1);
+  cr_assert_eq(result[1], 0);
+  cr_assert_eq(result[2], 0);
+  cr_assert_eq(result[3], 0);
+  free(result);
+
+  /* to_base_negative_2(2) = 0b00000110 */
+  result = to_base_4(2);
+  cr_assert_eq(result[0], -2);
+  cr_assert_eq(result[1], 1);
+  cr_assert_eq(result[2], 0);
+  cr_assert_eq(result[3], 0);
+  free(result);
+  
+  /* to_base_negative_2(-14) = 0b11101110 */
+  result = to_base_4(-14);
+  cr_assert_eq(result[0], -2);
+  cr_assert_eq(result[1], 1);
+  cr_assert_eq(result[2], -1);
+  cr_assert_eq(result[3], 0);
+  free(result);
+}
