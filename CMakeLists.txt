@@ -63,3 +63,23 @@ if(PYTHON3)
 else()
     message(WARNING "python3 not found -- skipping Python tests")
 endif()
+
+# Lean proofs (chapter 14 parity, etc.)
+# ninja -C build lean_proofs
+# ctest --test-dir build -R lean_proofs -V
+find_program(LAKE lake)
+if(LAKE)
+    enable_testing()
+    add_custom_target(lean_proofs
+        COMMAND ${LAKE} build
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/proofs
+        COMMENT "Checking Lean proofs"
+    )
+    add_test(
+        NAME lean_proofs
+        COMMAND ${LAKE} build
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/proofs
+    )
+else()
+    message(WARNING "lake not found -- skipping Lean proof checks")
+endif()
