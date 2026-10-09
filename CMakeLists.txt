@@ -61,6 +61,10 @@ if(PYTHON3)
         NAME magicgu_python
         COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/chapter10/test_magicgu.py
     )
+    add_test(
+        NAME hamming_python
+        COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/chapter15/test_hamming.py
+    )
 else()
     message(WARNING "python3 not found -- skipping Python tests")
 endif()
