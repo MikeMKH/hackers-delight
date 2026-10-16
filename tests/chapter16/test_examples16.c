@@ -559,3 +559,239 @@ hilbert(dir=0, rot=+1, order=2)
     step(0)  heading E  -> (3,0)  index 15
 */
 }
+
+void hil_xy_from_s(uint32_t s, int32_t n, uint32_t *xp,  uint32_t *yp) {
+  uint32_t state, x, y, row;
+  int32_t i;
+  
+  state = 0;
+  x = y = 0;
+  for (i = 2*n - 2; i >= 0; i -= 2) {
+    row = 4*state | ((s >> i) & 3);
+    x = (x << 1) | ((0x936C >> row) & 1);
+    y = (y << 1) | ((0x39C6 >> row) & 1);
+    state = ((0x3E6B94C1 >> 2*row) & 3);
+  }
+  /* pass back results */
+  *xp = x;
+  *yp = y;
+}
+
+Test(hil_xy_from_s, order_0_single_point) {
+  /* Order 0: 2^0 = 1 point, only distance 0 is valid */
+  uint32_t x, y;
+  hil_xy_from_s(0, 0, &x, &y);
+  cr_assert_eq(x, 0, "Order 0: x should be 0");
+  cr_assert_eq(y, 0, "Order 0: y should be 0");
+}
+
+Test(hil_xy_from_s, order_1_four_points) {
+  /*
+    Order 1: 2^1 = 2 width/height, 4 points on curve
+    Hilbert curve order 1 visits: (0,0) -> (0,1) -> (1,1) -> (1,0)
+   */
+  uint32_t x, y;
+  
+  hil_xy_from_s(0, 1, &x, &y);
+  cr_assert_eq(x, 0, "Order 1, s=0: x should be 0");
+  cr_assert_eq(y, 0, "Order 1, s=0: y should be 0");
+  
+  hil_xy_from_s(1, 1, &x, &y);
+  cr_assert_eq(x, 0, "Order 1, s=1: x should be 0");
+  cr_assert_eq(y, 1, "Order 1, s=1: y should be 1");
+  
+  hil_xy_from_s(2, 1, &x, &y);
+  cr_assert_eq(x, 1, "Order 1, s=2: x should be 1");
+  cr_assert_eq(y, 1, "Order 1, s=2: y should be 1");
+  
+  hil_xy_from_s(3, 1, &x, &y);
+  cr_assert_eq(x, 1, "Order 1, s=3: x should be 1");
+  cr_assert_eq(y, 0, "Order 1, s=3: y should be 0");
+}
+
+Test(hil_xy_from_s, order_2_sixteen_points) {
+  /*
+    Order 2: 2^2 = 4 width/height, 16 points on curve
+    Verify a few key points and corners
+   */
+  uint32_t x, y;
+  
+  /* First point should be origin */
+  hil_xy_from_s(0, 2, &x, &y);
+  cr_assert_eq(x, 0, "Order 2, s=0: x should be 0");
+  cr_assert_eq(y, 0, "Order 2, s=0: y should be 0");
+  
+  /* Last point should be in bounds [0, 3] */
+  hil_xy_from_s(15, 2, &x, &y);
+  cr_assert_leq(x, 3, "Order 2, s=15: x should be <= 3");
+  cr_assert_leq(y, 3, "Order 2, s=15: y should be <= 3");
+  cr_assert_geq(x, 0, "Order 2, s=15: x should be >= 0");
+  cr_assert_geq(y, 0, "Order 2, s=15: y should be >= 0");
+}
+
+Test(hil_xy_from_s, order_3_all_in_bounds) {
+  /*
+    Order 3: 2^3 = 8 width/height, 64 points on curve
+    All coordinates must stay within [0, 7]
+   */
+  uint32_t x, y;
+  uint32_t max_s = (1U << 6) - 1; /* 2^(2*n) - 1 = 63 for n=3 */
+  
+  for (uint32_t s = 0; s <= max_s; s++) {
+    hil_xy_from_s(s, 3, &x, &y);
+    cr_assert_leq(x, 7, "Order 3, s=%u: x=%u exceeds bounds", s, x);
+    cr_assert_leq(y, 7, "Order 3, s=%u: y=%u exceeds bounds", s, y);
+    cr_assert_geq(x, 0, "Order 3, s=%u: x=%u below bounds", s, x);
+    cr_assert_geq(y, 0, "Order 3, s=%u: y=%u below bounds", s, y);
+  }
+}
+
+Test(hil_xy_from_s, order_2_connectivity) {
+  /*
+    Verify that consecutive points are adjacent (4-connected) 
+    A Hilbert curve should be continuous without gaps
+   */
+  uint32_t x1, y1, x2, y2;
+  
+  for (uint32_t s = 0; s < 15; s++) {
+    hil_xy_from_s(s, 2, &x1, &y1);
+    hil_xy_from_s(s + 1, 2, &x2, &y2);
+    
+    uint32_t dx = (x1 > x2) ? (x1 - x2) : (x2 - x1);
+    uint32_t dy = (y1 > y2) ? (y1 - y2) : (y2 - y1);
+    
+    /* Points must be adjacent (Manhattan distance = 1) */
+    uint32_t manhattan = dx + dy;
+    cr_assert_eq(manhattan, 1, 
+      "s=%u (%u,%u) to s=%u (%u,%u): not adjacent (distance=%u)",
+      s, x1, y1, s+1, x2, y2, manhattan);
+  }
+}
+
+Test(hil_xy_from_s, no_null_pointer_dereference) {
+  uint32_t x, y;
+  
+  hil_xy_from_s(0, 2, &x, &y);
+  cr_assert_eq(x, 0, "Origin x coordinate");
+  cr_assert_eq(y, 0, "Origin y coordinate");
+}
+
+
+
+Test(hil_xy_from_s, order_4_large_grid) {
+  /*
+     Order 4: 2^4 = 16 width/height, 256 points
+     Verify bounds and a sample of points
+   */
+  uint32_t x, y;
+  uint32_t max_s = (1U << 8) - 1; /* 256 - 1 */
+  
+  /* Test first, middle, and last points */
+  hil_xy_from_s(0, 4, &x, &y);
+  cr_assert_eq(x, 0, "Order 4, s=0: should start at origin");
+  cr_assert_eq(y, 0, "Order 4, s=0: should start at origin");
+  
+  hil_xy_from_s(127, 4, &x, &y);
+  cr_assert_leq(x, 15, "Order 4, s=127: x in bounds");
+  cr_assert_leq(y, 15, "Order 4, s=127: y in bounds");
+  
+  hil_xy_from_s(max_s, 4, &x, &y);
+  cr_assert_leq(x, 15, "Order 4, s=255: x in bounds");
+  cr_assert_leq(y, 15, "Order 4, s=255: y in bounds");
+}
+
+Test(hil_xy_from_s, symmetry_order_1) {
+  /*
+     Order 1 Hilbert curve has rotational properties
+     Verify specific coordinate values
+   */
+  uint32_t x, y;
+  
+  /* Trace through order 1: (0,0)->(0,1)->(1,1)->(1,0) */
+  const struct {
+    uint32_t s;
+    uint32_t expected_x;
+    uint32_t expected_y;
+  } points[] = {
+    {0, 0, 0},
+    {1, 0, 1},
+    {2, 1, 1},
+    {3, 1, 0},
+  };
+  
+  for (size_t i = 0; i < sizeof(points)/sizeof(points[0]); i++) {
+    hil_xy_from_s(points[i].s, 1, &x, &y);
+    cr_assert_eq(x, points[i].expected_x, 
+      "Order 1, s=%u: x mismatch", points[i].s);
+    cr_assert_eq(y, points[i].expected_y,
+      "Order 1, s=%u: y mismatch", points[i].s);
+  }
+}
+
+Test(hil_xy_from_s, order_zero_boundary) {
+  /* Edge case: order 0 is a 1x1 grid */
+  uint32_t x, y;
+  hil_xy_from_s(0, 0, &x, &y);
+  cr_assert_eq(x, 0, "Order 0: x at origin");
+  cr_assert_eq(y, 0, "Order 0: y at origin");
+}
+
+Test(hil_xy_from_s, increasing_orders_contain_previous) {
+  /*
+     Points from order n should correspond to order n+1
+     (within the same quadrant structure)
+   */
+  uint32_t x1, y1, x2, y2;
+  
+  /* First point of order n should match first point of order n+1 */
+  for (int n = 0; n < 4; n++) {
+    hil_xy_from_s(0, n, &x1, &y1);
+    hil_xy_from_s(0, n+1, &x2, &y2);
+    cr_assert_eq(x1, 0, "Order %d->%d: origin x mismatch", n, n+1);
+    cr_assert_eq(y1, 0, "Order %d->%d: origin y mismatch", n, n+1);
+  }
+}
+
+Test(hil_xy_from_s, output_parameter_modification) {
+  /* Ensure the function actually modifies the output parameters */
+  uint32_t x = 0xDEADBEEF, y = 0xCAFEBABE;
+  
+  hil_xy_from_s(5, 2, &x, &y);
+  
+  /* After calling, both should be changed from their sentinel values and should be valid coordinates */
+  cr_assert_neq(x, 0xDEADBEEF, "x parameter not modified");
+  cr_assert_neq(y, 0xCAFEBABE, "y parameter not modified");
+  cr_assert_leq(x, 3, "x for order 2 should be in [0,3]");
+  cr_assert_leq(y, 3, "y for order 2 should be in [0,3]");
+}
+
+Test(hil_xy_from_s, deterministic_output) {
+  /* Same input should always produce same output */
+  uint32_t x1, y1, x2, y2;
+  
+  hil_xy_from_s(42, 3, &x1, &y1);
+  hil_xy_from_s(42, 3, &x2, &y2);
+  
+  cr_assert_eq(x1, x2, "Function not deterministic for x");
+  cr_assert_eq(y1, y2, "Function not deterministic for y");
+}
+
+Test(hil_xy_from_s, order_5_stress_test) {
+  /*
+     Order 5: 32x32 grid, 1024 points - stress test traversal
+     Verify all points are unique and in bounds
+   */
+  uint32_t x, y;
+  int seen[32][32] = {0};
+  uint32_t max_s = (1U << 10) - 1; /* 1024 points */
+  
+  for (uint32_t s = 0; s <= max_s; s++) {
+    hil_xy_from_s(s, 5, &x, &y);
+    
+    cr_assert_leq(x, 31, "Order 5, s=%u: x out of bounds", s);
+    cr_assert_leq(y, 31, "Order 5, s=%u: y out of bounds", s);
+    cr_assert_eq(seen[x][y], 0, "Order 5: duplicate at (%u,%u)", x, y);
+    
+    seen[x][y] = 1;
+  }
+}
