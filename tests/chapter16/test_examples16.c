@@ -795,3 +795,508 @@ Test(hil_xy_from_s, order_5_stress_test) {
     seen[x][y] = 1;
   }
 }
+
+/*
+  One level of the Lam and Shapiro method (one row of Table 16-6).
+ 
+  Reads bit i of *x and bit i of *y, which are (xi, yi), and does what the
+  table says for that pair to the bits still to be read:
+ 
+    (xi, yi)   then                         returns (append to s)
+    (0, 0)     swap x and y                 0b00
+    (0, 1)     no change                    0b01
+    (1, 0)     swap and complement x, y     0b11
+    (1, 1)     no change                    0b10
+ 
+  "Complement" here means the whole 32-bit word, not only the bits below i.
+  Domain: 0 <= i <= 31.
+*/
+uint32_t hil_lam_shapiro_step(uint32_t *x, uint32_t *y, int i) {
+  uint32_t xi = (*x >> i) & 1u;     /* Get bit i of x. */
+  uint32_t yi = (*y >> i) & 1u;     /* Get bit i of y. */
+
+  /*
+    Rows (0,0) and (1,0) of the table, the two with yi = 0: swap x and y,
+    and when xi is 1 complement them too. -xi is 0 when xi is 0 and all ones
+    when xi is 1 (unsigned wraparound, well defined), so xor-ing with it
+    either leaves a word alone or complements it, with no branch.
+  */
+  if (yi == 0) {
+    uint32_t temp = *x;
+    *x = *y ^ (-xi);
+    *y = temp ^ (-xi);
+  }
+
+  /*
+    The two bits to append: 00, 01, 11, 10 for (xi, yi) = (0,0), (0,1),
+    (1,0), (1,1). The high bit is xi. The low bit is xi ^ yi.
+  */
+  return 2u * xi + (xi ^ yi);
+}
+
+/*
+  The Hilbert curve's index s for the point (x, y) on a curve of order n,
+  i.e. how many steps along the curve it is. The inverse of walking the curve.
+  Works from the top bit of x and y down, taking one table row per bit pair
+  and appending two bits to s each time, so s has 2n bits.
+ 
+  Domain: 0 <= n <= 16 (so that s fits in 32 bits). Bits of x and y at
+  position n and above are ignored. Callers need not mask them.
+*/
+uint32_t hil_s_from_xy(uint32_t x, uint32_t y, int n) {
+  uint32_t s = 0;
+  for (int i = n - 1; i >= 0; i--) {
+    s = 4u * s + hil_lam_shapiro_step(&x, &y, i); /* Append two bits to s. */
+  }
+  return s;
+}
+
+static const char *const ROW_ACTION[4] = {
+  "swap x and y",                /* (0,0) */
+  "no change",                   /* (0,1) */
+  "swap and complement x and y", /* (1,0) */
+  "no change",                   /* (1,1) */
+};
+
+static void print_bits(uint32_t value, int width) {
+  for (int i = width - 1; i >= 0; i--) {
+    putchar(((value >> i) & 1u) ? '1' : '0');
+  }
+}
+
+/*
+  The same computation, narrating every level: the bit pair read, which row
+  of the table applies, what is appended to s, and what remains of x and y.
+  Returns the same value as hil_s_from_xy().
+*/
+uint32_t hil_s_from_xy_print_trace(uint32_t x, uint32_t y, int n) {
+  uint32_t s = 0;
+
+  printf("hil_s_from_xy(x=%u, y=%u, n=%d)\n", x, y, n);
+  printf("  start:  x = ");
+  print_bits(x, n);
+  printf("  y = ");
+  print_bits(y, n);
+  printf("\n");
+
+  for (int i = n - 1; i >= 0; i--) {
+    uint32_t xi = (x >> i) & 1u;
+    uint32_t yi = (y >> i) & 1u;
+    uint32_t row = 2u * xi + yi; /* 0..3, in the table's order */
+
+    uint32_t appended = hil_lam_shapiro_step(&x, &y, i);
+    s = 4u * s + appended;
+
+    printf(
+      "  i=%d  (xi,yi)=(%u,%u)  row %u: %-27s  append %c%c  s so far = ",
+      i, xi, yi, row + 1, ROW_ACTION[row],
+      '0' + (char)(appended >> 1), '0' + (char)(appended & 1u)
+    );
+    print_bits(s, 2 * (n - i));
+    printf("\n");
+
+    if (i > 0) {
+      uint32_t mask = (1u << i) - 1u;
+      printf("          bits still to read:  x = ");
+      print_bits(x & mask, i);
+      printf("  y = ");
+      print_bits(y & mask, i);
+      printf("\n");
+    }
+  }
+  printf("  s = %u\n", s);
+  return s;
+}
+
+/*
+  Prints the index s of every cell of a 2^n by 2^n grid, with y increasing
+  upward as in the curve's own coordinates. Meant for small n (0..8).
+*/
+void hil_print_grid(int n) {
+  if (n < 0 || n > 8) return;
+
+  uint32_t side = 1u << n;
+  uint32_t last = side * side - 1u;
+  int width = 1;
+  for (uint32_t v = last; v >= 10u; v /= 10u) { width++; }
+
+  for (uint32_t row = 0; row < side; row++) {
+    uint32_t y = side - 1u - row;
+    printf("  y=%-3u |", y);
+    for (uint32_t x = 0; x < side; x++) {
+      printf(" %*u", width, hil_s_from_xy(x, y, n));
+    }
+    printf("\n");
+  }
+  printf("  x       ");
+  for (uint32_t x = 0; x < side; x++) {
+    printf(" %*u", width, x);
+  }
+  printf("\n");
+}
+
+/*
+  Table 16-6, read as geometry. At each level the next two bits (xi, yi) say
+  which quarter of the current square the point is in, and the quarter's
+  place along the curve (0..3) is appended to s as two bits:
+
+                   xi = 0        xi = 1
+               +-----------+-----------+
+      yi = 1   |  upper    |  upper    |
+               |  left     |  right    |
+               |  01       |  10       |
+               +-----------+-----------+
+      yi = 0   |  lower    |  lower    |
+               |  left     |  right    |
+               |  00       |  11       |
+               +-----------+-----------+
+
+  The curve visits the quarters in the order 00, 01, 10, 11: the U shape
+  lower-left, upper-left, upper-right, lower-right. That is the order-1 curve.
+
+  The curve inside each quarter is oriented differently from the whole. The
+  two middle quarters are the same way up, so no change. The first quarter is
+  the curve transposed, so swap x and y. The last is the curve reflected
+  across the other diagonal, so swap and complement. (In the recursion of
+  Figure 16-3 these are exactly the first and last quarters, the two drawn
+  with -rot.) The swap or swap-and-complement re-expresses the remaining bits
+  in the sub-curve's own frame, so the next level can use the same table.
+*/
+
+/* Table 16-6, one row per (xi, yi), indexed by 2*xi + yi, in the book's order. */
+typedef struct {
+  uint32_t xi, yi;
+  int swap, complement;
+  uint32_t append;
+} table_row;
+
+static const table_row TABLE_16_6[4] = {
+  { 0, 0, 1, 0, 0x0 }, /* (0,0): swap x and y              append 00 */
+  { 0, 1, 0, 0, 0x1 }, /* (0,1): no change                 append 01 */
+  { 1, 0, 1, 1, 0x3 }, /* (1,0): swap and complement       append 11 */
+  { 1, 1, 0, 0, 0x2 }, /* (1,1): no change                 append 10 */
+};
+
+/* Deterministic pseudo-random words so failures are reproducible. */
+static uint32_t xorshift32(uint32_t *state) {
+  uint32_t x = *state;
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  *state = x;
+  return x;
+}
+
+/*
+  Row 1, (0,0): swap x and y, append 00. i = 2, so the bits still to be read
+  are the low two. Bit 2 of both is 0.
+*/
+Test(lam_shapiro, row_1_swaps_x_and_y_and_appends_00) {
+  uint32_t x = 0x2;   /* 0b010 */
+  uint32_t y = 0x1;   /* 0b001 */
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 2), 0x0u, "appended bits");
+  cr_assert_eq(x, 0x1u, "x is the old y");
+  cr_assert_eq(y, 0x2u, "y is the old x");
+}
+
+/* Row 2, (0,1): no change, append 01. Bit 2 of x is 0, of y is 1. */
+Test(lam_shapiro, row_2_changes_nothing_and_appends_01) {
+  uint32_t x = 0x3;   /* 0b011 */
+  uint32_t y = 0x6;   /* 0b110 */
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 2), 0x1u, "appended bits");
+  cr_assert_eq(x, 0x3u);
+  cr_assert_eq(y, 0x6u);
+}
+
+/*
+  Row 3, (1,0): swap and complement, append 11. Bit 2 of x is 1, of y is 0.
+  The new x is the old y complemented and the new y is the old x
+  complemented. The whole word is complemented; what matters is the low two
+  bits, the ones still to be read.
+*/
+Test(lam_shapiro, row_3_swaps_and_complements_and_appends_11) {
+  uint32_t x = 0x5;   /* 0b101 */
+  uint32_t y = 0x2;   /* 0b010 */
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 2), 0x3u, "appended bits");
+  cr_assert_eq(x, ~0x2u, "x is the old y, complemented");
+  cr_assert_eq(y, ~0x5u, "y is the old x, complemented");
+  cr_assert_eq(x & 0x3u, 0x1u, "the two bits still to be read in x: 01");
+  cr_assert_eq(y & 0x3u, 0x2u, "the two bits still to be read in y: 10");
+}
+
+/* Row 4, (1,1): no change, append 10. Bit 2 of both is 1. */
+Test(lam_shapiro, row_4_changes_nothing_and_appends_10) {
+  uint32_t x = 0x6;   /* 0b110 */
+  uint32_t y = 0x5;   /* 0b101 */
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 2), 0x2u, "appended bits");
+  cr_assert_eq(x, 0x6u);
+  cr_assert_eq(y, 0x5u);
+}
+
+/*
+  The table again, exhaustively: every pair of 8-bit values, at every bit
+  position 0..7, so every row is hit thousands of times with every possible
+  surrounding bits.
+*/
+Test(lam_shapiro, table_16_6_holds_for_every_input_and_every_bit_position) {
+  for (int i = 0; i < 8; i++) {
+    for (uint32_t x = 0; x < 256; x++) {
+      for (uint32_t y = 0; y < 256; y++) {
+        uint32_t xi = (x >> i) & 1u;
+        uint32_t yi = (y >> i) & 1u;
+        const table_row *row = &TABLE_16_6[2 * xi + yi];
+
+        uint32_t want_x = row->swap ? y : x;
+        uint32_t want_y = row->swap ? x : y;
+        if (row->complement) {
+          want_x = ~want_x;
+          want_y = ~want_y;
+        }
+
+        uint32_t nx = x, ny = y;
+        uint32_t appended = hil_lam_shapiro_step(&nx, &ny, i);
+        cr_assert_eq(appended, row->append, "x=%u y=%u i=%d", x, y, i);
+        cr_assert_eq(nx, want_x, "x=%u y=%u i=%d", x, y, i);
+        cr_assert_eq(ny, want_y, "x=%u y=%u i=%d", x, y, i);
+      }
+    }
+  }
+}
+
+/*
+  With n = 1 there is only one level, so s is just the "append" column: the
+  four rows are the four points of the order-1 curve, in the order the curve
+  visits them (compare the order-1 curve from hilbert_curve()).
+*/
+Test(lam_shapiro, with_n_equal_1_the_table_is_the_order_1_curve) {
+  cr_assert_eq(hil_s_from_xy(0, 0, 1), 0u, "lower-left  (0,0)");
+  cr_assert_eq(hil_s_from_xy(0, 1, 1), 1u, "upper-left  (0,1)");
+  cr_assert_eq(hil_s_from_xy(1, 1, 1), 2u, "upper-right (1,1)");
+  cr_assert_eq(hil_s_from_xy(1, 0, 1), 3u, "lower-right (1,0)");
+
+  hilbert_point curve[4];
+  cr_assert_eq(hilbert_curve(1, curve, 4), (size_t)4);
+  for (uint32_t i = 0; i < 4; i++) {
+    cr_assert_eq(hil_s_from_xy(curve[i].x, curve[i].y, 1), i, "point %u of the curve", i);
+  }
+}
+
+/*
+  (1, 0) at n = 2. At the top level (xi, yi) = (0, 0): row 1, swap, append
+  00. The low bits were (x0, y0) = (1, 0), but after the swap the next level
+  reads (0, 1) and appends 01. Without the swap it would read (1, 0) and
+  append 11, which would be the wrong answer. s = 0001 = 1.
+*/
+Test(lam_shapiro, worked_example_swap_changes_what_the_next_level_reads) {
+  uint32_t x = 1, y = 0;
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 1), 0x0u, "top level: row 1, append 00");
+  cr_assert_eq(x, 0u);
+  cr_assert_eq(y, 1u);
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 0), 0x1u, "next level reads (0,1): row 2, append 01");
+  cr_assert_eq(hil_s_from_xy(1, 0, 2), 1u);
+}
+
+/*
+  (2, 0) at n = 2. At the top level (xi, yi) = (1, 0): row 3, swap and
+  complement, append 11. The low bits were (0, 0). After the complement the
+  next level reads (1, 1), not (0, 0), and appends 10, not 00. s = 1110 = 14.
+*/
+Test(lam_shapiro, worked_example_complement_changes_what_the_next_level_reads) {
+  uint32_t x = 2, y = 0;
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 1), 0x3u, "top level: row 3, append 11");
+  cr_assert_eq(x & 1u, 1u, "next level's xi");
+  cr_assert_eq(y & 1u, 1u, "next level's yi");
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 0), 0x2u, "next level reads (1,1): row 4, append 10");
+  cr_assert_eq(hil_s_from_xy(2, 0, 2), 14u);
+}
+
+/*
+  (1, 3) at n = 2. Top level (xi, yi) = (0, 1): row 2, no change, append 01.
+  Next level (1, 1): row 4, no change, append 10. s = 0110 = 6.
+*/
+Test(lam_shapiro, worked_example_with_no_changes) {
+  uint32_t x = 1, y = 3;
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 1), 0x1u);
+  cr_assert_eq(x, 1u);
+  cr_assert_eq(y, 3u);
+  cr_assert_eq(hil_lam_shapiro_step(&x, &y, 0), 0x2u);
+  cr_assert_eq(hil_s_from_xy(1, 3, 2), 6u);
+}
+
+/* The whole order-2 grid, as the book's index column laid out on the plane. */
+Test(lam_shapiro, order_2_index_map) {
+  static const uint32_t MAP[4][4] = {      /* [y][x], y = 0 first */
+    {  0,  1, 14, 15 },
+    {  3,  2, 13, 12 },
+    {  4,  7,  8, 11 },
+    {  5,  6,  9, 10 },
+  };
+  for (uint32_t y = 0; y < 4; y++) {
+    for (uint32_t x = 0; x < 4; x++) {
+      cr_assert_eq(hil_s_from_xy(x, y, 2), MAP[y][x], "(x=%u, y=%u)", x, y);
+    }
+  }
+}
+
+/*
+  Table 16-6 says an order-n answer is built from an order-(n-1) answer:
+  s(x, y, n) is the row's two bits, followed by s of the remaining low bits
+  after the row's swap and complement. Stated here with explicit masks and a
+  plain recursion, without the xor-with-minus-xi trick the code uses.
+*/
+Test(lam_shapiro, the_table_is_a_recursion_on_the_low_bits) {
+  for (int n = 2; n <= 6; n++) {
+    int top = n - 1;
+    uint32_t low = (1u << top) - 1u;
+    uint32_t side = 1u << n;
+    for (uint32_t x = 0; x < side; x++) {
+      for (uint32_t y = 0; y < side; y++) {
+        uint32_t xi = (x >> top) & 1u;
+        uint32_t yi = (y >> top) & 1u;
+        const table_row *row = &TABLE_16_6[2 * xi + yi];
+
+        uint32_t xl = x & low;
+        uint32_t yl = y & low;
+        uint32_t nx = row->swap ? yl : xl;
+        uint32_t ny = row->swap ? xl : yl;
+        if (row->complement) {
+          nx = ~nx & low;
+          ny = ~ny & low;
+        }
+
+        uint32_t want = (row->append << (2 * top)) | hil_s_from_xy(nx, ny, top);
+        cr_assert_eq(hil_s_from_xy(x, y, n), want, "n=%d x=%u y=%u", n, x, y);
+      }
+    }
+  }
+}
+
+/*
+  hil_s_from_xy() is the inverse of walking the curve. The curve built by
+  the recursion of Figure 16-3 (hilbert_curve) is an independent
+  implementation, so for every point on it the s computed here must equal its
+  index. This is the real test that the table is right, for every order from 0
+  to 9 (262144 points).
+*/
+Test(lam_shapiro, matches_the_index_of_every_point_on_the_recursions_curve) {
+  for (int order = 0; order <= 9; order++) {
+    size_t capacity = hilbert_point_count(order);
+    hilbert_point *curve = malloc(capacity * sizeof *curve);
+    cr_assert(curve != NULL);
+    cr_assert_eq(hilbert_curve(order, curve, capacity), capacity);
+    for (size_t i = 0; i < capacity; i++) {
+      cr_assert_eq(hil_s_from_xy(curve[i].x, curve[i].y, order), curve[i].index,
+                   "order %d (x=%u, y=%u)", order, curve[i].x, curve[i].y);
+    }
+    free(curve);
+  }
+}
+
+/*
+  Full width: at order 16, s uses all 32 bits. Take random s, convert to
+  (x, y) with the oracle, and confirm hil_s_from_xy() gets s back.
+*/
+Test(lam_shapiro, round_trips_at_order_16_using_all_32_bits_of_s) {
+  uint32_t seed = 0x13579BDFu;
+  for (int n = 0; n < 100000; n++) {
+    uint32_t s = xorshift32(&seed);
+    uint32_t x, y;
+    iterative_xy(16, s, &x, &y);
+    cr_assert_eq(hil_s_from_xy(x, y, 16), s, "s=0x%08x (x=%u, y=%u)", s, x, y);
+  }
+}
+
+Test(lam_shapiro, domain_boundaries) {
+  cr_assert_eq(hil_s_from_xy(5, 9, 0), 0u, "n = 0 has no levels, so s = 0");
+  cr_assert_eq(hil_s_from_xy(0, 0, 16), 0u, "start of an order-16 curve");
+  cr_assert_eq(hil_s_from_xy(0xFFFFu, 0, 16), 0xFFFFFFFFu, "end of an order-16 curve: 4^16 - 1");
+}
+
+/*
+  Only the low n bits of x and y are read, so callers need not mask. The
+  complement flips all 32 bits, but the bits it disturbs above position n are
+  never looked at again.
+*/
+Test(lam_shapiro, bits_at_position_n_and_above_are_ignored) {
+  uint32_t seed = 0x2468ACE1u;
+  for (int n = 1; n <= 8; n++) {
+    uint32_t side = 1u << n;
+    for (uint32_t x = 0; x < side; x++) {
+      for (uint32_t y = 0; y < side; y++) {
+        uint32_t gx = xorshift32(&seed) << n;
+        uint32_t gy = xorshift32(&seed) << n;
+        cr_assert_eq(hil_s_from_xy(x | gx, y | gy, n), hil_s_from_xy(x, y, n),
+                     "n=%d x=%u y=%u garbage 0x%08x 0x%08x", n, x, y, gx, gy);
+      }
+    }
+  }
+}
+
+/*
+  No new assertions use to see the table being applied level by level
+  and the index of every cell of the order-2 grid.
+*/
+Test(lam_shapiro, trace_and_grid) {
+  printf("\n--Start hil_s_from_xy() for (x=1, y=0), order 2--\n");
+  
+  printf("\nIndex s of each cell, order 2:\n");
+  hil_print_grid(2);
+
+  printf("\nRow 1 at work (swap): (x=1, y=0)\n");
+  cr_assert_eq(hil_s_from_xy_print_trace(1, 0, 2), hil_s_from_xy(1, 0, 2));
+
+  printf("\nRow 3 at work (swap and complement): (x=2, y=0)\n");
+  cr_assert_eq(hil_s_from_xy_print_trace(2, 0, 2), hil_s_from_xy(2, 0, 2));
+
+  printf("\nRows 2 and 4 (no change): (x=1, y=3)\n");
+  cr_assert_eq(hil_s_from_xy_print_trace(1, 3, 2), hil_s_from_xy(1, 3, 2));
+
+  printf("\nA bigger one, n = 4: (x=11, y=6)\n");
+  cr_assert_eq(hil_s_from_xy_print_trace(11, 6, 4), hil_s_from_xy(11, 6, 4));
+  
+  printf("\n\n--End hil_s_from_xy() for (x=1, y=0), order 2--\n");
+}
+/*
+Index s of each cell, order 2:
+  y=3   |  5  6  9 10
+  y=2   |  4  7  8 11
+  y=1   |  3  2 13 12
+  y=0   |  0  1 14 15
+  x         0  1  2  3
+
+Row 1 at work (swap): (x=1, y=0)
+hil_s_from_xy(x=1, y=0, n=2)
+  start:  x = 01  y = 00
+  i=1  (xi,yi)=(0,0)  row 1: swap x and y                 append 00  s so far = 00
+          bits still to read:  x = 0  y = 1
+  i=0  (xi,yi)=(0,1)  row 2: no change                    append 01  s so far = 0001
+  s = 1
+
+Row 3 at work (swap and complement): (x=2, y=0)
+hil_s_from_xy(x=2, y=0, n=2)
+  start:  x = 10  y = 00
+  i=1  (xi,yi)=(1,0)  row 3: swap and complement x and y  append 11  s so far = 11
+          bits still to read:  x = 1  y = 1
+  i=0  (xi,yi)=(1,1)  row 4: no change                    append 10  s so far = 1110
+  s = 14
+
+Rows 2 and 4 (no change): (x=1, y=3)
+hil_s_from_xy(x=1, y=3, n=2)
+  start:  x = 01  y = 11
+  i=1  (xi,yi)=(0,1)  row 2: no change                    append 01  s so far = 01
+          bits still to read:  x = 1  y = 1
+  i=0  (xi,yi)=(1,1)  row 4: no change                    append 10  s so far = 0110
+  s = 6
+
+A bigger one, n = 4: (x=11, y=6)
+hil_s_from_xy(x=11, y=6, n=4)
+  start:  x = 1011  y = 0110
+  i=3  (xi,yi)=(1,0)  row 3: swap and complement x and y  append 11  s so far = 11
+          bits still to read:  x = 001  y = 100
+  i=2  (xi,yi)=(0,1)  row 2: no change                    append 01  s so far = 1101
+          bits still to read:  x = 01  y = 00
+  i=1  (xi,yi)=(0,0)  row 1: swap x and y                 append 00  s so far = 110100
+          bits still to read:  x = 0  y = 1
+  i=0  (xi,yi)=(0,1)  row 2: no change                    append 01  s so far = 11010001
+  s = 209
+*/
