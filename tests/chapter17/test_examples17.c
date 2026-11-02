@@ -218,3 +218,61 @@ Test(double_precision_float, double_to_bits_and_back_large_positive) {
   double d2 = bits_to_double(bits);
   cr_assert_eq(d2, d1, "bits_to_double(double_to_bits(largest positive normal double)) should be the same value");
 }
+
+typedef struct { const char *name; float v; uint32_t bits; } f32_case;
+typedef struct { const char *name; double v; uint64_t bits; } f64_case;
+
+static const f32_case f32_cases[] = {
+  {"+0",            0.0f,             0x00000000u},
+  {"-0",           -0.0f,             0x80000000u},
+  {"1.0",           1.0f,             0x3f800000u},
+  {"-2.0",         -2.0f,             0xc0000000u},
+  {"0.5",           0.5f,             0x3f000000u},
+  {"0.1 (inexact)", 0.1f,             0x3dcccccdu},
+  {"pi",            3.14159265f,      0x40490fdbu},
+  {"min normal",    0x1p-126f,        0x00800000u},
+  {"max subnormal", 0x1.fffffcp-127f, 0x007fffffu},
+  {"min subnormal", 0x1p-149f,        0x00000001u},
+  {"max normal",    0x1.fffffep+127f, 0x7f7fffffu},
+  {"+inf",          INFINITY,         0x7f800000u},
+  {"-inf",         -INFINITY,         0xff800000u},
+};
+
+static const f64_case f64_cases[] = {
+  {"+0",            0.0,                     0x0000000000000000ull},
+  {"-0",           -0.0,                     0x8000000000000000ull},
+  {"1.0",           1.0,                     0x3ff0000000000000ull},
+  {"-2.0",         -2.0,                     0xc000000000000000ull},
+  {"0.5",           0.5,                     0x3fe0000000000000ull},
+  {"0.1 (inexact)", 0.1,                     0x3fb999999999999aull},
+  {"pi",            3.141592653589793,       0x400921fb54442d18ull},
+  {"min normal",    0x1p-1022,               0x0010000000000000ull},
+  {"max subnormal", 0x1.ffffffffffffep-1023, 0x000fffffffffffffull},
+  {"min subnormal", 0x1p-1074,               0x0000000000000001ull},
+  {"max normal",    0x1.fffffffffffffp+1023, 0x7fefffffffffffffull},
+  {"+inf",          (double)INFINITY,        0x7ff0000000000000ull},
+  {"-inf",         -(double)INFINITY,        0xfff0000000000000ull},
+};
+
+#define COUNT(a) (sizeof (a) / sizeof *(a))
+
+Test(single_precision_float, known_encodings) {
+  for (size_t i = 0; i < COUNT(f32_cases); i++) {
+    uint32_t got = float_to_bits(f32_cases[i].v);
+    cr_assert_eq(got, f32_cases[i].bits, "%s: got 0x%08x, want 0x%08x",
+                 f32_cases[i].name, got, f32_cases[i].bits);
+    uint32_t rt = float_to_bits(bits_to_float(f32_cases[i].bits));
+    cr_assert_eq(rt, f32_cases[i].bits, "%s: round trip 0x%08x", f32_cases[i].name, rt);
+  }
+}
+
+Test(double_precision_float, known_encodings) {
+  for (size_t i = 0; i < COUNT(f64_cases); i++) {
+    uint64_t got = double_to_bits(f64_cases[i].v);
+    cr_assert_eq(got, f64_cases[i].bits, "%s: got 0x%016llx, want 0x%016llx",
+                 f64_cases[i].name, (unsigned long long)got, (unsigned long long)f64_cases[i].bits);
+    uint64_t rt = double_to_bits(bits_to_double(f64_cases[i].bits));
+    cr_assert_eq(rt, f64_cases[i].bits, "%s: round trip 0x%016llx",
+                 f64_cases[i].name, (unsigned long long)rt);
+  }
+}
