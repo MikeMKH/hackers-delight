@@ -1,23 +1,30 @@
 #include <criterion/criterion.h>
 #include <stdint.h>
 #include <math.h> /* for isnan */
+#include <string.h> /* memcpy */
 
 uint32_t float_to_bits(float f) {
-  union {
-    float f;
-    uint32_t u;
-  } u1;
-  u1.f = f;
-  return u1.u;
+  uint32_t u;
+  memcpy(&u, &f, sizeof u);
+  return u;
 }
 
 float bits_to_float(uint32_t u) {
-  union {
-    float f;
-    uint32_t u;
-  } u2;
-  u2.u = u;
-  return u2.f;
+  float f;
+  memcpy(&f, &u, sizeof f);
+  return f;
+}
+
+uint64_t double_to_bits(double d) {
+  uint64_t u;
+  memcpy(&u, &d, sizeof u);
+  return u;
+}
+
+double bits_to_double(uint64_t u) {
+  double d;
+  memcpy(&d, &u, sizeof d);
+  return d;
 }
 
 Test(single_precision_float, float_to_bits_and_back_1f) {
@@ -114,24 +121,6 @@ Test(single_precision_float, float_to_bits_and_back_large_positive) {
   cr_assert_eq(bits, 0x7f7fffff, "float_to_bits(largest positive normal float) should be 0x7f7fffff");
   float f2 = bits_to_float(bits);
   cr_assert_eq(f2, f1, "bits_to_float(float_to_bits(largest positive normal float)) should be the same value");
-}
-
-uint64_t double_to_bits(double d) {
-  union {
-    double d;
-    uint64_t u;
-  } u1;
-  u1.d = d;
-  return u1.u;
-}
-
-double bits_to_double(uint64_t u) {
-  union {
-    double d;
-    uint64_t u;
-  } u2;
-  u2.u = u;
-  return u2.d;
 }
 
 Test(double_precision_float, double_to_bits_and_back_1d) {
