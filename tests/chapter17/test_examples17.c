@@ -279,22 +279,22 @@ Test(double_precision_float, known_encodings) {
 
 Test(single_precision_float, fields_of_minus_6_25) {
   uint32_t b = float_to_bits(-6.25f);
-  cr_assert_eq(b >> 31, 1u);                 /* sign */
-  cr_assert_eq((b >> 23) & 0xff, 129u);      /* 127 + 2 */
-  cr_assert_eq(b & 0x7fffff, 0x480000u);     /* .1001 0000... */
+  cr_assert_eq(b >> 31, 1u);             /* sign */
+  cr_assert_eq((b >> 23) & 0xff, 129u);  /* 127 + 2 */
+  cr_assert_eq(b & 0x7fffff, 0x480000u); /* .1001 0000... */
   cr_assert_eq(b, 0xc0c80000u);
 }
 
 Test(double_precision_float, fields_of_minus_6_25) {
   uint64_t b = double_to_bits(-6.25);
   cr_assert_eq(b >> 63, 1u);
-  cr_assert_eq((b >> 52) & 0x7ff, 1025u);    /* 1023 + 2 */
+  cr_assert_eq((b >> 52) & 0x7ff, 1025u); /* 1023 + 2 */
   cr_assert_eq(b & 0xfffffffffffffull, 0x9000000000000ull);
   cr_assert_eq(b, 0xc019000000000000ull);
 }
 
 Test(single_precision_float, nan_payloads_preserved) {
-  static const uint32_t nans[] = {0x7fc00000u, 0xffc00000u, 0x7fc12345u};  /* +qNaN, -qNaN, qNaN with payload */
+  static const uint32_t nans[] = {0x7fc00000u, 0xffc00000u, 0x7fc12345u}; /* +qNaN, -qNaN, qNaN */
   for (size_t i = 0; i < COUNT(nans); i++) {
     float f = bits_to_float(nans[i]);
     cr_assert(isnan(f));
