@@ -313,3 +313,259 @@ Test(double_precision_float, fields_of_minus_6_25) {
   cr_assert_eq(b & 0xfffffffffffffull, 0x9000000000000ull);
   cr_assert_eq(b, 0xc019000000000000ull);
 }
+
+#include <fenv.h>   /* fesetround */
+
+#ifndef COUNT
+#define COUNT(a) (sizeof (a) / sizeof *(a))
+#endif
+
+/* ---- Table 17-2 constants ------------------------------------------------ */
+static double c521d(void) { return bits_to_double(0x4338000000000000ULL); } /* 2^52 + 2^51 */
+static double c52d(void)  { return bits_to_double(0x4330000000000000ULL); } /* 2^52        */
+static float  c231f(void) { return bits_to_float(0x4b400000u); }            /* 2^23 + 2^22 */
+static float  c23f(void)  { return bits_to_float(0x4b000000u); }            /* 2^23        */
+
+/* volatile reads keep the compiler from folding or hoisting the adds across fesetround() */
+static double vd(double x) { volatile double v = x; return v; }
+static float  vf(float x)  { volatile float  v = x; return v; }
+
+/* ---- formulas ------------------------------------------------------------ */
+/* (x +d c521) -d c521: double->int64 n/d/u, and "round double to nearest" */
+static double f_c521(double x) { return (vd(x) + c521d()) - c521d(); }
+/* (x +d c52) -d c52: double->uint64 n/d/u, and "round non-negative double" */
+static double f_c52(double x)  { return (vd(x) + c52d()) - c52d(); }
+/* double->int64, z (run in mode d or z) */
+static double f_z52(double x) {
+  double c = c52d();
+  return vd(x) >= 0.0 ? (vd(x) + c) - c : c - (c - vd(x));
+}
+/* low32(x +d c521): double->int32/uint32 n/d/u */
+static uint32_t low32_521(double x) { return (uint32_t)double_to_bits(vd(x) + c521d()); }
+/* double->int32/uint32, d or z */
+static int32_t d2i32_z(double x) {
+  if (vd(x) >= 0.0) return (int32_t)low32_521(x);
+  return (int32_t)(0u - (uint32_t)double_to_bits(c521d() - vd(x)));
+}
+/* (x +s c231) -s c231: float->int32 n/d/u, and "round float to nearest" */
+static float f_c231(float x) { return (vf(x) + c231f()) - c231f(); }
+/* (x +s c23) -s c23: float->uint32 n/d/u, and "round non-negative float" */
+static float f_c23(float x)  { return (vf(x) + c23f()) - c23f(); }
+/* float->int32, z (run in mode d or z) */
+static float f_z23(float x) {
+  float c = c23f();
+  return vf(x) >= 0.0f ? (vf(x) + c) - c : c - (c - vf(x));
+}
+
+static double u64_to_double(uint64_t x) { return bits_to_double(x + 0x4330000000000000ULL) - c52d(); }
+static double i64_to_double(int64_t x)  { return bits_to_double((uint64_t)x + 0x4338000000000000ULL) - c521d(); }
+static double i32_to_double(int32_t x)  { return i64_to_double(x); }  /* sign-extend (note 4) */
+static double u32_to_double(uint32_t x) { return u64_to_double(x); }  /* zero-extend (note 4) */
+static float  i32_to_float(int32_t x)   { return bits_to_float((uint32_t)x + 0x4b400000u) - c231f(); }
+static float  u32_to_float(uint32_t x)  { return bits_to_float(x + 0x4b000000u) - c23f(); }
+
+/* ---- expected results per rounding mode ---------------------------------- */
+enum { RN, RD, RU, RZ };
+static const int         fe_mode[]   = { FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO };
+static const char *const mode_name[] = { "n", "d", "u", "z" };
+
+typedef struct { double x; long long r[4]; } rnd_case;  /* r[]: n, d, u, z */
+static const rnd_case rc[] = {
+  /*   x     n   d   u   z */
+  {  2.5, { 2,  2,  3,  2}},   /* tie: n goes to even */
+  {  3.5, { 4,  3,  4,  3}},
+  { -2.5, {-2, -3, -2, -2}},
+  { -3.5, {-4, -4, -3, -3}},
+  {  2.4, { 2,  2,  3,  2}},
+  {  2.6, { 3,  2,  3,  2}},
+  { -2.4, {-2, -3, -2, -2}},
+  { -2.6, {-3, -3, -2, -2}},
+  {  0.5, { 0,  0,  1,  0}},
+  { -0.5, { 0, -1,  0,  0}},
+  {  7.0, { 7,  7,  7,  7}},
+  { -7.0, {-7, -7, -7, -7}},
+};
+
+#define FOR_CASES for (size_t i = 0; i < COUNT(rc); i++)
+#define MSG "x=%g mode %s: got %lld want %lld"
+
+/* ---- constants ----------------------------------------------------------- */
+Test(table_17_2, constants) {
+  cr_assert_eq(c521d(), 0x1.8p52);  /* 2^52 + 2^51 */
+  cr_assert_eq(c52d(),  0x1p52);
+  cr_assert_eq(c231f(), 0x1.8p23f); /* 2^23 + 2^22 */
+  cr_assert_eq(c23f(),  0x1p23f);
+}
+
+/* ---- integer lives in the mantissa of the sum ------------------------ */
+Test(table_17_2, magic_sum_holds_integer_in_mantissa) {
+  cr_assert_eq(double_to_bits(5.0  + c521d()), 0x4338000000000000ULL + 5);
+  cr_assert_eq(double_to_bits(-5.0 + c521d()), 0x4338000000000000ULL - 5);
+  cr_assert_eq(float_to_bits(5.0f  + c231f()), 0x4b400000u + 5);
+  cr_assert_eq(float_to_bits(-5.0f + c231f()), 0x4b400000u - 5);
+
+  /* bits(x + c) - bits(c) is the rounded integer */
+  cr_assert_eq((int64_t)(double_to_bits(-5.3 + c521d()) - 0x4338000000000000ULL), -5);
+  cr_assert_eq((int32_t)(float_to_bits(-5.3f + c231f()) - 0x4b400000u), -5);
+}
+
+/* ---- double to int64 ----------------------------------------------------- */
+Test(table_17_2, double_to_int64_n_d_u) {
+  for (int m = RN; m <= RU; m++) {
+    fesetround(fe_mode[m]);
+    FOR_CASES {
+      long long got = (long long)f_c521(rc[i].x);
+      cr_assert_eq(got, rc[i].r[m], MSG, rc[i].x, mode_name[m], got, rc[i].r[m]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+Test(table_17_2, double_to_int64_z) {            /* works in mode d or z */
+  static const int ms[] = { RD, RZ };
+  for (size_t k = 0; k < COUNT(ms); k++) {
+    fesetround(fe_mode[ms[k]]);
+    FOR_CASES {
+      long long got = (long long)f_z52(rc[i].x);
+      cr_assert_eq(got, rc[i].r[RZ], MSG, rc[i].x, mode_name[ms[k]], got, rc[i].r[RZ]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+/* ---- double to uint64 (non-negative inputs only) ------------------------- */
+Test(table_17_2, double_to_uint64_n_d_u) {
+  for (int m = RN; m <= RU; m++) {
+    fesetround(fe_mode[m]);
+    FOR_CASES {
+      if (rc[i].x < 0) continue;
+      long long got = (long long)f_c52(rc[i].x);
+      cr_assert_eq(got, rc[i].r[m], MSG, rc[i].x, mode_name[m], got, rc[i].r[m]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+/* ---- double to int32 / uint32: low32 of the sum -------------------------- */
+Test(table_17_2, double_to_int32_n_d_u) {
+  for (int m = RN; m <= RU; m++) {
+    fesetround(fe_mode[m]);
+    FOR_CASES {
+      long long got = (int32_t)low32_521(rc[i].x);
+      cr_assert_eq(got, rc[i].r[m], MSG, rc[i].x, mode_name[m], got, rc[i].r[m]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+Test(table_17_2, double_to_int32_or_uint32_same_bits) {
+  cr_assert_eq(low32_521(-1.0), 0xffffffffu);
+  cr_assert_eq(low32_521(4294967295.0), 0xffffffffu);
+  cr_assert_eq((int32_t)low32_521(-2147483648.0), INT32_MIN);
+  cr_assert_eq(low32_521(2147483647.0), 0x7fffffffu);
+}
+
+Test(table_17_2, double_to_int32_z) {
+  /* works in mode d or z */
+  static const int ms[] = { RD, RZ };
+  for (size_t k = 0; k < COUNT(ms); k++) {
+    fesetround(fe_mode[ms[k]]);
+    FOR_CASES {
+      long long got = d2i32_z(rc[i].x);
+      cr_assert_eq(got, rc[i].r[RZ], MSG, rc[i].x, mode_name[ms[k]], got, rc[i].r[RZ]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+/* ---- float to int32 / uint32 --------------------------------------------- */
+Test(table_17_2, float_to_int32_n_d_u) {
+  for (int m = RN; m <= RU; m++) {
+    fesetround(fe_mode[m]);
+    FOR_CASES {
+      long long got = (long long)f_c231((float)rc[i].x);
+      cr_assert_eq(got, rc[i].r[m], MSG, rc[i].x, mode_name[m], got, rc[i].r[m]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+Test(table_17_2, float_to_int32_z) {
+  /* works in mode d or z */
+  static const int ms[] = { RD, RZ };
+  for (size_t k = 0; k < COUNT(ms); k++) {
+    fesetround(fe_mode[ms[k]]);
+    FOR_CASES {
+      long long got = (long long)f_z23((float)rc[i].x);
+      cr_assert_eq(got, rc[i].r[RZ], MSG, rc[i].x, mode_name[ms[k]], got, rc[i].r[RZ]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+Test(table_17_2, float_to_uint32_n_d_u) {
+  for (int m = RN; m <= RU; m++) {
+    fesetround(fe_mode[m]);
+    FOR_CASES {
+      if (rc[i].x < 0) continue;
+      long long got = (long long)f_c23((float)rc[i].x);
+      cr_assert_eq(got, rc[i].r[m], MSG, rc[i].x, mode_name[m], got, rc[i].r[m]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+/* ---- round to nearest (result stays floating point) ---------------------- */
+Test(table_17_2, round_double_to_nearest) {
+  static const double v[] = { -2.5, -0.75, 0.3, 1.5, 2.5, 123456.789, 1000000000000000.5 };
+  for (size_t i = 0; i < COUNT(v); i++)
+    cr_assert_eq(f_c521(v[i]), nearbyint(v[i]), "x=%.17g", v[i]);
+}
+
+Test(table_17_2, round_nonneg_double_to_nearest) {
+  static const double v[] = { 0.3, 1.5, 2.5, 123456.789, 4503599627370495.5 /* 2^52 - 0.5 */ };
+  for (size_t i = 0; i < COUNT(v); i++)
+    cr_assert_eq(f_c52(v[i]), nearbyint(v[i]), "x=%.17g", v[i]);
+}
+
+Test(table_17_2, round_float_to_nearest) {
+  static const float v[] = { -2.5f, -0.75f, 0.3f, 1.5f, 2.5f, 123456.75f, 4194303.5f /* 2^22 - 0.5 */ };
+  for (size_t i = 0; i < COUNT(v); i++)
+    cr_assert_eq(f_c231(v[i]), nearbyintf(v[i]), "x=%.9g", (double)v[i]);
+}
+
+Test(table_17_2, round_nonneg_float_to_nearest) {
+  static const float v[] = { 0.3f, 1.5f, 2.5f, 123456.75f, 8388607.5f /* 2^23 - 0.5 */ };
+  for (size_t i = 0; i < COUNT(v); i++)
+    cr_assert_eq(f_c23(v[i]), nearbyintf(v[i]), "x=%.9g", (double)v[i]);
+}
+
+/* ---- integer to floating point (exact, so rounding mode is irrelevant) --- */
+Test(table_17_2, int_to_float_conversions) {
+  static const uint64_t u64[] = { 0, 1, 123456789012345ULL, (1ULL << 52) - 1 };
+  static const int64_t  i64[] = { 0, 1, -1, 123456789012345LL, -123456789012345LL, 1LL << 51, -(1LL << 51) };
+  static const int32_t  i32[] = { 0, 1, -1, 12345, -12345, 1 << 22, -(1 << 22) };
+  static const uint32_t u32[] = { 0, 1, 12345, (1u << 23) - 1, 1u << 23 };
+
+  for (int m = RN; m <= RZ; m++) {
+    fesetround(fe_mode[m]);
+    for (size_t i = 0; i < COUNT(u64); i++) cr_assert_eq(u64_to_double(u64[i]), (double)u64[i]);
+    for (size_t i = 0; i < COUNT(i64); i++) cr_assert_eq(i64_to_double(i64[i]), (double)i64[i]);
+    for (size_t i = 0; i < COUNT(i32); i++) {
+      cr_assert_eq(i32_to_float(i32[i]),  (float)i32[i]);
+      cr_assert_eq(i32_to_double(i32[i]), (double)i32[i]);
+    }
+    for (size_t i = 0; i < COUNT(u32); i++) {
+      cr_assert_eq(u32_to_float(u32[i]),  (float)u32[i]);
+      cr_assert_eq(u32_to_double(u32[i]), (double)u32[i]);
+    }
+  }
+  fesetround(FE_TONEAREST);
+}
+
+Test(table_17_2, uint64_to_double_out_of_range) {
+  /* range is 0..2^52-1. 2^52+1 spills into the next binade (ulp 2): result is 2^52+2. */
+  uint64_t x = (1ULL << 52) + 1;
+  cr_assert_eq(u64_to_double(x), 4503599627370498.0);
+  cr_assert_neq(u64_to_double(x), (double)x);
+}
