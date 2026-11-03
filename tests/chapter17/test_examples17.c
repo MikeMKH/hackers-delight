@@ -219,61 +219,82 @@ Test(double_precision_float, double_to_bits_and_back_large_positive) {
   cr_assert_eq(d2, d1, "bits_to_double(double_to_bits(largest positive normal double)) should be the same value");
 }
 
-typedef struct { const char *name; float v; uint32_t bits; } f32_case;
-typedef struct { const char *name; double v; uint64_t bits; } f64_case;
+#define F32_BITS(s, e, m) (((uint32_t)(s) << 31) | ((uint32_t)(e) << 23) | (uint32_t)(m))
+#define F64_BITS(s, e, m) (((uint64_t)(s) << 63) | ((uint64_t)(e) << 52) | (uint64_t)(m))
+#define COUNT(a) (sizeof (a) / sizeof *(a))
+
+typedef struct { const char *name; float v;  uint32_t sign, exp, mant; } f32_case;
+typedef struct { const char *name; double v; uint64_t sign, exp, mant; } f64_case;
 
 static const f32_case f32_cases[] = {
-  {"+0",            0.0f,             0x00000000u},
-  {"-0",           -0.0f,             0x80000000u},
-  {"1.0",           1.0f,             0x3f800000u},
-  {"-2.0",         -2.0f,             0xc0000000u},
-  {"0.5",           0.5f,             0x3f000000u},
-  {"0.1 (inexact)", 0.1f,             0x3dcccccdu},
-  {"pi",            3.14159265f,      0x40490fdbu},
-  {"min normal",    0x1p-126f,        0x00800000u},
-  {"max subnormal", 0x1.fffffcp-127f, 0x007fffffu},
-  {"min subnormal", 0x1p-149f,        0x00000001u},
-  {"max normal",    0x1.fffffep+127f, 0x7f7fffffu},
-  {"+inf",          INFINITY,         0x7f800000u},
-  {"-inf",         -INFINITY,         0xff800000u},
+  /* name             value             s  exp    mantissa (23 bits) */
+  {"+0",              0.0f,             0, 0x00,  0x000000},
+  {"-0",             -0.0f,             1, 0x00,  0x000000},
+  {"1.0",             1.0f,             0, 0x7f,  0x000000},
+  {"-2.0",           -2.0f,             1, 0x80,  0x000000},
+  {"0.5",             0.5f,             0, 0x7e,  0x000000},
+  {"0.1 (inexact)",   0.1f,             0, 0x7b,  0x4ccccd},
+  {"pi",              3.14159265f,      0, 0x80,  0x490fdb},
+  {"min normal",      0x1p-126f,        0, 0x01,  0x000000},
+  {"max subnormal",   0x1.fffffcp-127f, 0, 0x00,  0x7fffff},
+  {"min subnormal",   0x1p-149f,        0, 0x00,  0x000001},
+  {"max normal",      0x1.fffffep+127f, 0, 0xfe,  0x7fffff},
+  {"+inf",            INFINITY,         0, 0xff,  0x000000},
+  {"-inf",           -INFINITY,         1, 0xff,  0x000000},
 };
 
 static const f64_case f64_cases[] = {
-  {"+0",            0.0,                     0x0000000000000000ull},
-  {"-0",           -0.0,                     0x8000000000000000ull},
-  {"1.0",           1.0,                     0x3ff0000000000000ull},
-  {"-2.0",         -2.0,                     0xc000000000000000ull},
-  {"0.5",           0.5,                     0x3fe0000000000000ull},
-  {"0.1 (inexact)", 0.1,                     0x3fb999999999999aull},
-  {"pi",            3.141592653589793,       0x400921fb54442d18ull},
-  {"min normal",    0x1p-1022,               0x0010000000000000ull},
-  {"max subnormal", 0x1.ffffffffffffep-1023, 0x000fffffffffffffull},
-  {"min subnormal", 0x1p-1074,               0x0000000000000001ull},
-  {"max normal",    0x1.fffffffffffffp+1023, 0x7fefffffffffffffull},
-  {"+inf",          (double)INFINITY,        0x7ff0000000000000ull},
-  {"-inf",         -(double)INFINITY,        0xfff0000000000000ull},
+  /* name             value                    s  exp     mantissa (52 bits) */
+  {"+0",              0.0,                     0, 0x000,  0x0000000000000},
+  {"-0",             -0.0,                     1, 0x000,  0x0000000000000},
+  {"1.0",             1.0,                     0, 0x3ff,  0x0000000000000},
+  {"-2.0",           -2.0,                     1, 0x400,  0x0000000000000},
+  {"0.5",             0.5,                     0, 0x3fe,  0x0000000000000},
+  {"0.1 (inexact)",   0.1,                     0, 0x3fb,  0x999999999999a},
+  {"pi",              3.141592653589793,       0, 0x400,  0x921fb54442d18},
+  {"min normal",      0x1p-1022,               0, 0x001,  0x0000000000000},
+  {"max subnormal",   0x1.ffffffffffffep-1023, 0, 0x000,  0xfffffffffffff},
+  {"min subnormal",   0x1p-1074,               0, 0x000,  0x0000000000001},
+  {"max normal",      0x1.fffffffffffffp+1023, 0, 0x7fe,  0xfffffffffffff},
+  {"+inf",            (double)INFINITY,        0, 0x7ff,  0x0000000000000},
+  {"-inf",           -(double)INFINITY,        1, 0x7ff,  0x0000000000000},
 };
-
-#define COUNT(a) (sizeof (a) / sizeof *(a))
 
 Test(single_precision_float, known_encodings) {
   for (size_t i = 0; i < COUNT(f32_cases); i++) {
-    uint32_t got = float_to_bits(f32_cases[i].v);
-    cr_assert_eq(got, f32_cases[i].bits, "%s: got 0x%08x, want 0x%08x",
-                 f32_cases[i].name, got, f32_cases[i].bits);
-    uint32_t rt = float_to_bits(bits_to_float(f32_cases[i].bits));
-    cr_assert_eq(rt, f32_cases[i].bits, "%s: round trip 0x%08x", f32_cases[i].name, rt);
+    const f32_case *c = &f32_cases[i];
+    cr_assert(c->sign <= 1 && c->exp <= 0xff && c->mant <= 0x7fffff, "%s: field out of range", c->name);
+
+    uint32_t want = F32_BITS(c->sign, c->exp, c->mant);
+    uint32_t got  = float_to_bits(c->v);
+    cr_assert_eq(got, want, "%s: float_to_bits got 0x%08x, want 0x%08x", c->name, got, want);
+
+    uint32_t rt = float_to_bits(bits_to_float(want));
+    cr_assert_eq(rt, want, "%s: bits_to_float round trip got 0x%08x", c->name, rt);
   }
 }
 
 Test(double_precision_float, known_encodings) {
   for (size_t i = 0; i < COUNT(f64_cases); i++) {
-    uint64_t got = double_to_bits(f64_cases[i].v);
-    cr_assert_eq(got, f64_cases[i].bits, "%s: got 0x%016llx, want 0x%016llx",
-                 f64_cases[i].name, (unsigned long long)got, (unsigned long long)f64_cases[i].bits);
-    uint64_t rt = double_to_bits(bits_to_double(f64_cases[i].bits));
-    cr_assert_eq(rt, f64_cases[i].bits, "%s: round trip 0x%016llx",
-                 f64_cases[i].name, (unsigned long long)rt);
+    const f64_case *c = &f64_cases[i];
+    cr_assert(c->sign <= 1 && c->exp <= 0x7ff && c->mant <= 0xfffffffffffffull, "%s: field out of range", c->name);
+    
+    uint64_t want = F64_BITS(c->sign, c->exp, c->mant);
+    uint64_t got  = double_to_bits(c->v);
+    cr_assert_eq(got, want, "%s: double_to_bits got 0x%016llx, want 0x%016llx",
+      c->name, (unsigned long long)got, (unsigned long long)want);
+    
+    uint64_t rt = double_to_bits(bits_to_double(want));
+    cr_assert_eq(rt, want, "%s: bits_to_double round trip got 0x%016llx", c->name, (unsigned long long)rt);
+  }
+}
+  
+Test(single_precision_float, nan_payloads_preserved) {
+  static const uint32_t nans[] = {0x7fc00000u, 0xffc00000u, 0x7fc12345u}; /* +qNaN, -qNaN, qNaN */
+  for (size_t i = 0; i < COUNT(nans); i++) {
+    float f = bits_to_float(nans[i]);
+    cr_assert(isnan(f));
+    cr_assert_eq(float_to_bits(f), nans[i], "payload lost for 0x%08x", nans[i]);
   }
 }
 
@@ -291,13 +312,4 @@ Test(double_precision_float, fields_of_minus_6_25) {
   cr_assert_eq((b >> 52) & 0x7ff, 1025u); /* 1023 + 2 */
   cr_assert_eq(b & 0xfffffffffffffull, 0x9000000000000ull);
   cr_assert_eq(b, 0xc019000000000000ull);
-}
-
-Test(single_precision_float, nan_payloads_preserved) {
-  static const uint32_t nans[] = {0x7fc00000u, 0xffc00000u, 0x7fc12345u}; /* +qNaN, -qNaN, qNaN */
-  for (size_t i = 0; i < COUNT(nans); i++) {
-    float f = bits_to_float(nans[i]);
-    cr_assert(isnan(f));
-    cr_assert_eq(float_to_bits(f), nans[i], "payload lost for 0x%08x", nans[i]);
-  }
 }
