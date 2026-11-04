@@ -569,3 +569,136 @@ Test(table_17_2, uint64_to_double_out_of_range) {
   cr_assert_eq(u64_to_double(x), 4503599627370498.0);
   cr_assert_neq(u64_to_double(x), (double)x);
 }
+
+#include <float.h> /* sizeof, FLT_MAX, etc. */
+#include <stdbool.h> /* true, false */
+
+_Static_assert(sizeof(float) == sizeof(int32_t), "32-bit float expected");
+
+/*
+  Sorted ascending. -0.0f and 0.0f are adjacent: they are the pair where
+  the IEEE and non-IEEE columns of the table disagree.
+*/
+static const float values_17_3[] = {
+  -INFINITY, -FLT_MAX, -1.0f, -FLT_MIN, -1.0e-45f, -0.0f,
+   0.0f,      1.0e-45f, FLT_MIN, 1.0f,    FLT_MAX,  INFINITY
+};
+
+#ifndef COUNT
+#define COUNT(a) (sizeof (a) / sizeof *(a))
+#endif
+
+static int32_t float_bits(float f) {
+  int32_t n;
+  memcpy(&n, &f, sizeof n);
+  return n;
+}
+
+/*
+  For every pair i < j, the preconditioned integers must order the same
+  way the floats do. In sorted order that means strictly less, except that
+  IEEE treats -0.0 == +0.0, so that one pair must compare equal.
+*/
+static void check_signed(int32_t (*precondition)(int32_t), bool ieee) {
+  for (size_t i = 0; i < COUNT(values_17_3); i++) {
+    for (size_t j = i + 1; j < COUNT(values_17_3); j++) {
+      int32_t x = precondition(float_bits(values_17_3[i]));
+      int32_t y = precondition(float_bits(values_17_3[j]));
+      if (ieee && values_17_3[i] == values_17_3[j])
+        cr_assert_eq(x, y, "%g vs %g", values_17_3[i], values_17_3[j]);
+      else
+        cr_assert_lt(x, y, "%g vs %g", values_17_3[i], values_17_3[j]);
+    }
+  }
+}
+
+static void check_unsigned(uint32_t (*precondition)(int32_t), bool ieee) {
+  for (size_t i = 0; i < COUNT(values_17_3); i++) {
+    for (size_t j = i + 1; j < COUNT(values_17_3); j++) {
+      uint32_t x = precondition(float_bits(values_17_3[i]));
+      uint32_t y = precondition(float_bits(values_17_3[j]));
+      if (ieee && values_17_3[i] == values_17_3[j])
+        cr_assert_eq(x, y, "%g vs %g", values_17_3[i], values_17_3[j]);
+      else
+        cr_assert_lt(x, y, "%g vs %g", values_17_3[i], values_17_3[j]);
+    }
+  }
+}
+
+/* ---- -0.0 = +0.0 (IEEE) ---- */
+
+static uint32_t ieee_1(int32_t n) {
+  uint32_t u;
+  if (n >= 0) u = n + 0x80000000;
+  else u = -(uint32_t)n;
+  /* use unsigned comparison */
+  return u;
+}
+
+static int32_t ieee_2(int32_t n) {
+  int32_t c = 0x7FFFFFFF;
+  if (n < 0) n = (n ^ c) + 1;
+  /* use signed comparison */
+  return n;
+}
+
+static int32_t ieee_3(int32_t n) {
+  int32_t c = (int32_t)0x80000000;
+  if (n < 0) n = c - n;
+  /* use signed comparison */
+  return n;
+}
+
+static int32_t ieee_4(int32_t n) {
+  int32_t t = n >> 31;
+  n = (n ^ (int32_t)((uint32_t)t >> 1)) - t;
+  /* use signed comparison */
+  return n;
+}
+
+/* ---- -0.0 < +0.0 (non-IEEE) ---- */
+
+static uint32_t nonieee_1(int32_t n) {
+  uint32_t u;
+  if (n >= 0) u = n + 0x80000000;
+  else u = ~n;
+  /* use unsigned comparison */
+  return u;
+}
+
+static int32_t nonieee_2(int32_t n) {
+  int32_t c = 0x7FFFFFFF;
+  if (n < 0) n = n ^ c;
+  /* use signed comparison */
+  return n;
+}
+
+static int32_t nonieee_3(int32_t n) {
+  int32_t c = 0x7FFFFFFF;
+  if (n < 0) n = (int32_t)((uint32_t)c - (uint32_t)n);
+  /* use signed comparison */
+  return n;
+}
+
+static int32_t nonieee_4(int32_t n) {
+  uint32_t t = (unsigned)(n >> 30) >> 1;
+  n = (int32_t)(n ^ t);
+  /* use signed comparison */
+  return n;
+}
+
+Test(fp_precondition, zero_bit_patterns) {
+  cr_assert_eq((uint32_t)float_bits(-0.0f), 0x80000000u);
+  cr_assert_eq(float_bits(0.0f), 0);
+  cr_assert(-0.0f == 0.0f);
+}
+
+Test(fp_precondition, ieee_1_unsigned_negate)    { check_unsigned(ieee_1, true); }
+Test(fp_precondition, ieee_2_xor_plus_one)       { check_signed(ieee_2, true); }
+Test(fp_precondition, ieee_3_c_minus_n)          { check_signed(ieee_3, true); }
+Test(fp_precondition, ieee_4_shift_xor_subtract) { check_signed(ieee_4, true); }
+
+Test(fp_precondition, nonieee_1_unsigned_not)    { check_unsigned(nonieee_1, false); }
+Test(fp_precondition, nonieee_2_xor)             { check_signed(nonieee_2, false); }
+Test(fp_precondition, nonieee_3_c_minus_n)       { check_signed(nonieee_3, false); }
+Test(fp_precondition, nonieee_4_shift_xor)       { check_signed(nonieee_4, false); }
