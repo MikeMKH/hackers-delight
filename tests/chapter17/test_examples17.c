@@ -702,3 +702,175 @@ Test(fp_precondition, nonieee_1_unsigned_not)    { check_unsigned(nonieee_1, fal
 Test(fp_precondition, nonieee_2_xor)             { check_signed(nonieee_2, false); }
 Test(fp_precondition, nonieee_3_c_minus_n)       { check_signed(nonieee_3, false); }
 Test(fp_precondition, nonieee_4_shift_xor)       { check_signed(nonieee_4, false); }
+
+float rsqrt(float x0) {
+  uint32_t ix = float_to_bits(x0);
+  float xhalf = 0.5f * x0;
+  ix = 0x5f375a82u - (ix >> 1);      /* initial guess */
+  float x = bits_to_float(ix);
+  return x * (1.5f - xhalf * x * x); /* Newton step */
+}
+
+float rsqrt_tuned(float x0) {
+  /* 1.5008908 in the Newton step */
+  uint32_t ix = float_to_bits(x0);
+  float xhalf = 0.5f * x0;
+  float x = bits_to_float(0x5f375a82u - (ix >> 1));
+  return x * (1.5008908f - xhalf * x * x);
+}
+
+float rsqrt_2step(float x0) {
+  /* optimal constant for two steps */
+  uint32_t ix = float_to_bits(x0);
+  float xhalf = 0.5f * x0;
+  float x = bits_to_float(0x5f37599eu - (ix >> 1));
+  x = x * (1.5f - xhalf * x * x);
+  return x * (1.5f - xhalf * x * x);
+}
+
+float rsqrt_nonewton(float x0) {
+  /* two integer ops, no Newton step */
+  return bits_to_float(0x5f37642fu - (float_to_bits(x0) >> 1));
+}
+
+float rsqrt_expsub(float x0) {
+  /* xhalf = x with exponent - 1 */
+  uint32_t ix = float_to_bits(x0);
+  float xhalf = bits_to_float(ix - 0x00800000u);
+  float x = bits_to_float(0x5f375a82u - (ix >> 1));
+  return x * (1.5f - xhalf * x * x);
+}
+
+#define POS_NORMAL_LO 0x00800000u /* FLT_MIN */
+#define POS_NORMAL_HI 0x7f7fffffu /* FLT_MAX */
+#define SWEEP_STRIDE  4099u       /* prime, so mantissas vary; ~500k samples */
+
+static double rel_err(float got, float x) {
+  /* (got - exact) / exact, exact in double */
+  double ref = 1.0 / sqrt((double)x);
+  return ((double)got - ref) / ref;
+}
+
+/* 
+  check that the relative error stays in [lo, hi] over a stride-sampled sweep of
+  positive normals in [from, POS_NORMAL_HI], plus the top endpoint
+*/
+static void check_sweep(float (*f)(float), uint32_t from, double lo, double hi, const char *name) {
+  for (uint32_t b = from; b < POS_NORMAL_HI; b += SWEEP_STRIDE) {
+    float x = bits_to_float(b);
+    double e = rel_err(f(x), x);
+    cr_assert(e >= lo && e <= hi, "%s: x=%.9g (0x%08x) rel err %.9f outside [%g, %g]",
+              name, (double)x, b, e, lo, hi);
+  }
+  float x = bits_to_float(POS_NORMAL_HI);
+  double e = rel_err(f(x), x);
+  cr_assert(e >= lo && e <= hi, "%s: FLT_MAX rel err %.9f", name, e);
+}
+
+/* ---- the integer trick: the bits of the initial guess -------------------- */
+Test(rsqrt, initial_guess_bits_for_one) {
+  /* bits(1.0f) = 0x3f800000; >>1 = 0x1fc00000; magic - that = 0x3f775a82 */
+  uint32_t guess = 0x5f375a82u - (float_to_bits(1.0f) >> 1);
+  cr_assert_eq(guess, 0x3f775a82u, "got 0x%08x", guess);
+  float g = bits_to_float(guess);
+  cr_assert(g > 0.96f && g < 0.97f, "guess for 1/sqrt(1) = %.9g", (double)g);  /* ~0.9647 */
+}
+
+/* ---- known values -------------------------------------------------------- */
+Test(rsqrt, known_values_within_book_bound) {
+  static const float xs[]    = { 1.0f, 4.0f, 16.0f, 0.25f, 0.0625f, 2.0f, 100.0f };
+  static const float exact[] = { 1.0f, 0.5f, 0.25f,  2.0f,  4.0f, 0.70710678f, 0.1f };
+  for (size_t i = 0; i < COUNT(xs); i++) {
+    double e = ((double)rsqrt(xs[i]) - exact[i]) / exact[i];
+    cr_assert(e >= -0.00176 && e <= 1e-6, "rsqrt(%g): rel err %.9f", (double)xs[i], e);
+  }
+  /* x = 1.0 pinned tighter: 0.998308063 (error -0.00169) */
+  cr_assert_float_eq(rsqrt(1.0f), 0.998308063f, 1e-7f);
+}
+
+/* ---- relative error bound: 0 to -0.00176, errs on the low side ------------- */
+Test(rsqrt, relative_error_all_normals) {
+  /* observed: [-0.0017513, +1.1e-7]; the tiny positive part is float rounding noise */
+  check_sweep(rsqrt, POS_NORMAL_LO, -0.00176, 1e-6, "rsqrt");
+}
+
+/* ---- scaling: rsqrt(4x) == rsqrt(x) / 2, bit-exact ------------------------ */
+Test(rsqrt, scaling_by_four_halves_result_exactly) {
+  /* bits(4x) = bits(x) + 0x01000000, so the guess's bits drop by exactly 0x00800000
+     (it halves), and every later step scales by a power of two with no rounding. */
+  for (uint32_t b = 0x10000000u; b < 0x70000000u; b += SWEEP_STRIDE) {   /* stay clear of over/underflow */
+    float x = bits_to_float(b);
+    uint32_t a = float_to_bits(rsqrt(4.0f * x));
+    uint32_t h = float_to_bits(rsqrt(x) * 0.5f);
+    cr_assert_eq(a, h, "x=0x%08x: 0x%08x vs 0x%08x", b, a, h);
+  }
+}
+
+
+Test(rsqrt, tuned_constant_halves_the_error) {
+  check_sweep(rsqrt_tuned, POS_NORMAL_LO, -0.000892, 0.000892, "rsqrt_tuned");
+}
+
+Test(rsqrt, two_newton_steps) {
+  /* observed: [-4.7e-6, +2e-7] */
+  check_sweep(rsqrt_2step, POS_NORMAL_LO, -0.0000048, 1e-6, "rsqrt_2step");
+}
+
+Test(rsqrt, no_newton_step) {
+  check_sweep(rsqrt_nonewton, POS_NORMAL_LO, -0.035, 0.035, "rsqrt_nonewton");
+}
+
+Test(rsqrt, more_work_means_less_error) {
+  /* spot check at x = 2: guess-only > one step > tuned > two steps */
+  float x = 2.0f;
+  double e0 = fabs(rel_err(rsqrt_nonewton(x), x));
+  double e1 = fabs(rel_err(rsqrt(x), x));
+  double e2 = fabs(rel_err(rsqrt_2step(x), x));
+  cr_assert(e0 > e1 && e1 > e2, "e0=%g e1=%g e2=%g", e0, e1, e2);
+}
+
+/* ---- special values (the text describes what goes wrong) ----------------- */
+Test(rsqrt, nan_in_nan_out) {
+  cr_assert(isnan(rsqrt(bits_to_float(0x7fc00000u)))); /* +qNaN */
+  cr_assert(isnan(rsqrt(bits_to_float(0xffc00000u)))); /* -qNaN */
+  cr_assert(isnan(rsqrt(bits_to_float(0x7fc12345u)))); /* qNaN with payload */
+}
+
+Test(rsqrt, zero_and_positive_subnormals_give_large_number) {
+  cr_assert_gt(rsqrt(0.0f), 9e18f);
+  cr_assert_gt(rsqrt(bits_to_float(0x00000001u)), 9e18f);   /* smallest subnormal */
+  cr_assert_gt(rsqrt(bits_to_float(0x007fffffu)), 9e18f);   /* largest subnormal */
+  cr_assert(!isinf(rsqrt(0.0f)), "the routine does not return +inf for 0");
+}
+
+Test(rsqrt, known_wrong_inputs_are_not_ieee_results) {
+  cr_assert_neq(rsqrt(INFINITY), 0.0f);                  /* correct: +0 */
+  cr_assert(!isnan(rsqrt(-1.0f)));                       /* correct: NaN */
+  cr_assert(!isnan(rsqrt(-INFINITY)));                   /* correct: NaN */
+  cr_assert(!(isinf(rsqrt(-0.0f)) && rsqrt(-0.0f) < 0)); /* correct: -inf */
+}
+
+/* ---- exponent-subtract refinement ---------------------------------------- */
+Test(rsqrt_expsub, zero_gives_plus_infinity) {
+  float r = rsqrt_expsub(0.0f);
+  cr_assert(isinf(r) && r > 0, "got %g", (double)r);     /* correct, unlike rsqrt() */
+}
+
+Test(rsqrt_expsub, subnormals_give_nan) {
+  cr_assert(isnan(rsqrt_expsub(bits_to_float(0x00000001u))));
+  cr_assert(isnan(rsqrt_expsub(bits_to_float(0x007fffffu))));
+}
+
+Test(rsqrt_expsub, small_normals_inaccurate_but_large) {
+  /* below ~2.34e-38 (= 2^-125 = bits 0x01000000): > 6e18 but off by many percent */
+  for (uint32_t b = POS_NORMAL_LO; b < 0x01000000u; b += 1031) {
+    float x = bits_to_float(b);
+    float r = rsqrt_expsub(x);
+    cr_assert_gt(r, 6e18f, "x=0x%08x r=%g", b, (double)r);
+  }
+  cr_assert_gt(fabs(rel_err(rsqrt_expsub(bits_to_float(POS_NORMAL_LO)), bits_to_float(POS_NORMAL_LO))), 0.4);
+}
+
+Test(rsqrt_expsub, accurate_from_2_to_minus_125_up) {
+  check_sweep(rsqrt_expsub, 0x01000000u, -0.00176, 1e-6, "rsqrt_expsub");
+}
