@@ -874,3 +874,35 @@ Test(rsqrt_expsub, small_normals_inaccurate_but_large) {
 Test(rsqrt_expsub, accurate_from_2_to_minus_125_up) {
   check_sweep(rsqrt_expsub, 0x01000000u, -0.00176, 1e-6, "rsqrt_expsub");
 }
+
+Test(hex_single_float, known_hex_float_to_float) {
+  cr_assert_float_eq(-2.0f, bits_to_float(0xc0000000u), 1e-7f);
+  cr_assert_float_eq(-1.0f, bits_to_float(0xbf800000u), 1e-7f);
+  cr_assert_float_eq(-0.5f, bits_to_float(0xbf000000u), 1e-7f);
+  cr_assert_float_eq(-0.0f, bits_to_float(0x80000000u), 1e-7f);
+  cr_assert_float_eq( 0.0f, bits_to_float(0x00000000u), 1e-7f);
+  cr_assert_float_eq( 0.1f, bits_to_float(0x3dcccccdu), 1e-7f);
+  cr_assert_float_eq( 0.5f, bits_to_float(0x3f000000u), 1e-7f);
+  cr_assert_float_eq( 1.0f, bits_to_float(0x3f800000u), 1e-7f);
+  cr_assert_float_eq( 2.0f, bits_to_float(0x40000000u), 1e-7f);
+  cr_assert_float_eq( 3.0f, bits_to_float(0x40400000u), 1e-7f);
+  cr_assert_float_eq( 4.0f, bits_to_float(0x40800000u), 1e-7f);
+  cr_assert_float_eq( 5.0f, bits_to_float(0x40a00000u), 1e-7f);
+  cr_assert_float_eq( 6.0f, bits_to_float(0x40c00000u), 1e-7f);
+}
+
+Test(hex_double_float, known_hex_double_to_double) {
+  cr_assert_float_eq(-2.0l, bits_to_double(0xc000000000000000u), 1e-7f);
+  cr_assert_float_eq(-1.0l, bits_to_double(0xbff0000000000000u), 1e-7f);
+  cr_assert_float_eq(-0.5l, bits_to_double(0xbfe0000000000000u), 1e-7f);
+  cr_assert_float_eq(-0.0l, bits_to_double(0x8000000000000000u), 1e-7f);
+  cr_assert_float_eq( 0.0l, bits_to_double(0x0000000000000000u), 1e-7f);
+  cr_assert_float_eq( 0.1l, bits_to_double(0x3fb999999999999au), 1e-7f);
+  cr_assert_float_eq( 0.5l, bits_to_double(0x3fe0000000000000u), 1e-7f);
+  cr_assert_float_eq( 1.0l, bits_to_double(0x3ff0000000000000u), 1e-7f);
+  cr_assert_float_eq( 2.0l, bits_to_double(0x4000000000000000u), 1e-7f);
+  cr_assert_float_eq( 3.0l, bits_to_double(0x4008000000000000u), 1e-7f);
+  cr_assert_float_eq( 4.0l, bits_to_double(0x4010000000000000u), 1e-7f);
+  cr_assert_float_eq( 5.0l, bits_to_double(0x4014000000000000u), 1e-7f);
+  cr_assert_float_eq( 6.0l, bits_to_double(0x4018000000000000u), 1e-7f);
+}
